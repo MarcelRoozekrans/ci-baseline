@@ -21,6 +21,8 @@ jobs:
         run: lib/install-pinned.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint"
       - name: actionlint
         run: actionlint .github/workflows/*.yml
+      - name: Check the baseline-ref default
+        run: python3 lib/check_baseline_ref.py
       - name: Check action metadata
         run: |
           python3 - <<'PY'
