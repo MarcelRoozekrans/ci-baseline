@@ -1,0 +1,105 @@
+name: nuget-audit
+description: Restore a solution with NuGetAudit enabled and fail on advisories at or above the chosen level. A guard first fails the run if NoWarn or WarningsNotAsErrors mutes an audit code.
+inputs:
+  solution:
+    description: Path of the .sln or .slnx to restore. Empty means the single solution file in working-directory.
+    default: ""
+  nuget-audit-level:
+    description: "Lowest advisory severity that fails the run: low, moderate, high or critical."
+    default: moderate
+  working-directory:
+    description: Directory the solution is resolved and restored in.
+    default: "."
+outputs:
+  guard-result:
+    description: "clean when no audit code is muted, violations when the NoWarn guard failed the run."
+    value: ${{ steps.guard.outputs.guard-result }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve solution and failing codes
+      id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SOLUTION: ${{ inputs.solution }}
+        LEVEL: ${{ inputs.nuget-audit-level }}
+        LIB: ${{ github.action_path }}/../../lib/baseline_lib.py
+      run: |
+        set -euo pipefail
+        # The CLI prints its own ::error:: line on failure.
+        if ! sln=$(python3 "$LIB" resolve-solution --root . --solution "$SOLUTION"); then echo "$sln"; exit 1; fi
+        if ! codes=$(python3 "$LIB" failing-codes --level "$LEVEL"); then echo "$codes"; exit 1; fi
+        echo "sln=$sln" >> "$GITHUB_OUTPUT"
+        echo "codes=$codes" >> "$GITHUB_OUTPUT"
+    - name: Guard against muted audit codes
+      id: guard
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SLN: ${{ steps.resolve.outputs.sln }}
+        CODES: ${{ steps.resolve.outputs.codes }}
+        LIB: ${{ github.action_path }}/../../lib/baseline_lib.py
+      run: |
+        set -euo pipefail
+        evals="$RUNNER_TEMP/nuget-audit-evals.jsonl"
+        : > "$evals"
+        sln_dir=$(dirname "$SLN")
+        while IFS= read -r rel; do
+          [ -n "$rel" ] || continue
+          proj="$sln_dir/${rel//\\//}"
+          outer=$(dotnet msbuild "$proj" -getProperty:TargetFrameworks -getProperty:TargetFramework)
+          tfms=$(jq -r '.Properties.TargetFrameworks' <<< "$outer")
+          [ -n "$tfms" ] || tfms=$(jq -r '.Properties.TargetFramework' <<< "$outer")
+          IFS=';' read -r -a list <<< "$tfms"
+          for tfm in "${list[@]}"; do
+            [ -n "$tfm" ] || continue
+            dotnet msbuild "$proj" -getProperty:NoWarn -getProperty:WarningsNotAsErrors -getItem:PackageReference "-p:TargetFramework=$tfm" \
+              | jq -c --arg project "$proj" --arg tfm "$tfm" '. + {project: $project, tfm: $tfm}' >> "$evals"
+          done
+        done < <(dotnet sln "$SLN" list | tail -n +3)
+        status=0
+        violations=$(jq -s . "$evals" | python3 "$LIB" nowarn-check --codes "$CODES") || status=$?
+        if [ "$status" -ne 0 ]; then
+          echo "guard-result=violations" >> "$GITHUB_OUTPUT"
+          echo "guard: violations found" >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "- $line" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$line"
+          done <<< "$violations"
+          echo "::error::NoWarn or WarningsNotAsErrors mutes a NuGet audit code ($CODES). Use NuGetAuditSuppress for an accepted advisory instead; see the NuGetAuditSuppress section of the ci-baseline README."
+          exit 1
+        fi
+        echo "guard-result=clean" >> "$GITHUB_OUTPUT"
+        echo "guard: clean, no audit code muted" >> "$GITHUB_STEP_SUMMARY"
+    - name: Restore with NuGetAudit
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SLN: ${{ steps.resolve.outputs.sln }}
+        CODES: ${{ steps.resolve.outputs.codes }}
+      run: |
+        set -euo pipefail
+        dotnet restore "$SLN" --force -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low "-p:WarningsAsErrors=\"$CODES\"" 2>&1 | tee "$RUNNER_TEMP/nuget-audit.log"
+    - name: Summarize advisories
+      if: always()
+      shell: bash
+      run: |
+        set -uo pipefail
+        log="$RUNNER_TEMP/nuget-audit.log"
+        {
+          echo "### NuGet audit"
+          rows=""
+          if [ -f "$log" ]; then
+            rows=$(sed -nE "s/.*(NU190[1-4]): (Warning As Error: )?Package '([^']+)' ([^ ]+) has a known [a-z]+ severity vulnerability, (https?:[^ ]+).*/| \1 | \3 | \4 | \5 |/p" "$log" | sort -u)
+          fi
+          if [ -n "$rows" ]; then
+            echo "| Code | Package | Version | Advisory |"
+            echo "| --- | --- | --- | --- |"
+            echo "$rows"
+          elif [ -f "$log" ]; then
+            echo "No advisories."
+          else
+            echo "Restore did not run, see the guard result above."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"

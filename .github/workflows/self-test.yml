@@ -122,3 +122,63 @@ jobs:
     uses: ./.github/workflows/history-scan.yml
     with:
       baseline-ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+  nuget-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: clean
+        id: clean
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-clean
+      - name: vulnerable
+        id: vulnerable
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-vulnerable
+      - name: nowarn
+        id: nowarn
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-nowarn
+      - name: nowarn-package
+        id: nowarnpkg
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-nowarn-package
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          VULNERABLE: ${{ steps.vulnerable.outcome }}
+          VULNERABLE_GUARD: ${{ steps.vulnerable.outputs.guard-result }}
+          NOWARN: ${{ steps.nowarn.outcome }}
+          NOWARN_GUARD: ${{ steps.nowarn.outputs.guard-result }}
+          NOWARNPKG: ${{ steps.nowarnpkg.outcome }}
+          NOWARNPKG_GUARD: ${{ steps.nowarnpkg.outputs.guard-result }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean outcome" "$CLEAN" success
+          expect "vulnerable outcome" "$VULNERABLE" failure
+          expect "nowarn outcome" "$NOWARN" failure
+          expect "nowarn-package outcome" "$NOWARNPKG" failure
+          # The vulnerable fixture must pass the guard and fail in restore. The
+          # nowarn fixtures must fail in the guard: a failure from the restore
+          # advisory would prove nothing about the guard.
+          expect "vulnerable guard-result" "$VULNERABLE_GUARD" clean
+          expect "nowarn guard-result" "$NOWARN_GUARD" violations
+          expect "nowarn-package guard-result" "$NOWARNPKG_GUARD" violations
+          exit "$fail"
