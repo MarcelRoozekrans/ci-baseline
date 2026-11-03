@@ -225,11 +225,18 @@ jobs:
         with:
           path: skipdirs
           skip-dirs: "**/.ci-baseline"
+      - name: no-skip-dirs
+        id: noskipdirs
+        continue-on-error: true
+        uses: ./actions/trivy
+        with:
+          path: skipdirs
       - name: Assert outcomes
         if: always()
         shell: bash
         env:
           SKIPDIRS_RESULT: ${{ steps.skipdirs.outputs.result }}
+          NOSKIPDIRS_RESULT: ${{ steps.noskipdirs.outputs.result }}
           CLEAN: ${{ steps.clean.outcome }}
           MISCONFIG: ${{ steps.misconfig.outcome }}
           CLEAN_RESULT: ${{ steps.clean.outputs.result }}
@@ -240,6 +247,7 @@ jobs:
           [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }
           [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }
           [ "$SKIPDIRS_RESULT" = clean ] || { echo "::error::skip-dirs result was '$SKIPDIRS_RESULT', expected clean"; exit 1; }
+          [ "$NOSKIPDIRS_RESULT" = findings ] || { echo "::error::no-skip-dirs result was '$NOSKIPDIRS_RESULT', expected findings"; exit 1; }
 
   coverage-gate:
     runs-on: ubuntu-latest

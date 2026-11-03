@@ -92,7 +92,7 @@ jobs:
         run: |
           set -uo pipefail
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-            echo "::error::PR base commit $BASE_SHA is not in the checkout, so the PR range cannot be scanned. The checkout needs fetch-depth 0."
+            echo "::error::PR base commit $BASE_SHA is not reachable in the checkout, for example after a force-push to the base branch, so the PR range cannot be scanned. Re-run the job or rebase the PR."
             exit 1
           fi
           # pull_request_target checks out the base branch; fetch the PR head without checking it out.

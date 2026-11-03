@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 import io
@@ -195,24 +196,18 @@ class SplitLanguagesTest(unittest.TestCase):
                 baseline_lib.split_languages(value)
 
     def test_split_languages_cli_prints_compact_json(self):
-        old_out = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
             code = baseline_lib.main(["split-languages", "--languages", "csharp, actions"])
-            out = sys.stdout.getvalue()
-        finally:
-            sys.stdout = old_out
+        out = buf.getvalue()
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), '["csharp","actions"]')
 
     def test_split_languages_cli_empty_exits_2(self):
-        old_out = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
             code = baseline_lib.main(["split-languages", "--languages", " "])
-            out = sys.stdout.getvalue()
-        finally:
-            sys.stdout = old_out
+        out = buf.getvalue()
         self.assertEqual(code, 2)
         self.assertTrue(out.startswith("::error::"))
 
