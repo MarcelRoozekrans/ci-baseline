@@ -13,7 +13,7 @@ v1 is implemented on `feat/v1`. Tasks 1 to 10 of `docs/superpowers/plans/2026-11
 2. Owner: mark PR #1 ready and squash-merge it with its title. Keep the PR body unchanged until release-please has run; its `BEGIN_COMMIT_OVERRIDE` block is the v1.0.0 changelog.
 3. Verify the push run on `main`: `baseline / gitleaks` reports "Not a pull request" and passes.
 4. release-please opens a release PR for `1.0.0`, and the owner merges it. Then `git ls-remote --tags origin` shows `v1.0.0` and `v1` at the same SHA, and `move-major-tag` reports "Moved v1".
-5. Owner merges MarcelRoozekrans/renovate-config#3.
+5. Done 2026-11-03: MarcelRoozekrans/renovate-config#3 is merged.
 6. In `architecture-governance-engine`, update `docs/planning/STATE.md`: Phase 1.4 is unblocked.
 
 Open follow-ups: #2, Renovate for the pinned binaries, which needs a decision on the approach; #3, removing the actionlint ignore once actionlint ships `job.workflow_*` support.
