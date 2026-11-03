@@ -22,7 +22,8 @@ runs:
       env:
         TRIVY_URL: https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz
         TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
-      run: ${{ github.action_path }}/../../lib/install-pinned.sh "$TRIVY_URL" "$TRIVY_SHA256" "$RUNNER_TEMP/trivy-bin"
+        ACTION_PATH: ${{ github.action_path }}
+      run: '"$ACTION_PATH/../../lib/install-pinned.sh" "$TRIVY_URL" "$TRIVY_SHA256" "$RUNNER_TEMP/trivy-bin"'
     - name: Run Trivy
       id: scan
       shell: bash
