@@ -197,23 +197,21 @@ jobs:
         uses: ./actions/trivy
         with:
           path: fixtures/dotnet-clean
-          result-file: ${{ runner.temp }}/trivy-clean.result
       - name: misconfig
         id: misconfig
         continue-on-error: true
         uses: ./actions/trivy
         with:
           path: fixtures/iac-misconfig
-          result-file: ${{ runner.temp }}/trivy-misconfig.result
       - name: Assert outcomes
         if: always()
         shell: bash
         env:
           CLEAN: ${{ steps.clean.outcome }}
           MISCONFIG: ${{ steps.misconfig.outcome }}
+          CLEAN_RESULT: ${{ steps.clean.outputs.result }}
+          MISCONFIG_RESULT: ${{ steps.misconfig.outputs.result }}
         run: |
-          CLEAN_RESULT=$(cat "$RUNNER_TEMP/trivy-clean.result")
-          MISCONFIG_RESULT=$(cat "$RUNNER_TEMP/trivy-misconfig.result")
           [ "$CLEAN_RESULT" = clean ] || { echo "::error::clean result was '$CLEAN_RESULT', expected clean"; exit 1; }
           [ "$MISCONFIG_RESULT" = findings ] || { echo "::error::misconfig result was '$MISCONFIG_RESULT', expected findings"; exit 1; }
           [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }

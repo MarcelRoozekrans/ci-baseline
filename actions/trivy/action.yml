@@ -7,9 +7,10 @@ inputs:
   image:
     description: Container image reference to scan with trivy image. Empty means no image scan.
     default: ""
-  result-file:
-    description: "Optional path. The scan writes clean, findings or error there, error beating findings beating clean across fs and image. A failed composite action exports no outputs, so a file is the way to read the result of a failing scan."
-    default: ""
+outputs:
+  result:
+    description: "clean, findings or error. error beats findings beats clean across fs and image."
+    value: ${{ steps.scan.outputs.result }}
 runs:
   using: composite
   steps:
@@ -20,11 +21,11 @@ runs:
         TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
       run: ${{ github.action_path }}/../../lib/install-pinned.sh "$TRIVY_URL" "$TRIVY_SHA256" "$RUNNER_TEMP/trivy-bin"
     - name: Run Trivy
+      id: scan
       shell: bash
       env:
         SCAN_PATH: ${{ inputs.path }}
         IMAGE: ${{ inputs.image }}
-        RESULT_FILE: ${{ inputs.result-file }}
       run: |
         # Actions runs bash with -e; the exit codes below are handled by hand.
         set +e -uo pipefail
@@ -89,5 +90,5 @@ runs:
         else
           echo "trivy (image): skipped, no image input" >> "$GITHUB_STEP_SUMMARY"
         fi
-        [ -n "$RESULT_FILE" ] && echo "$result" > "$RESULT_FILE"
+        echo "result=$result" >> "$GITHUB_OUTPUT"
         exit "$overall"
