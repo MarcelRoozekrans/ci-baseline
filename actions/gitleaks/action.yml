@@ -34,7 +34,8 @@ runs:
         CONFIG: ${{ inputs.config }}
         REPORT_PATH: ${{ inputs.report-path }}
       run: |
-        set -uo pipefail
+        # Actions runs bash with -e; the exit codes below are handled by hand.
+        set +e -uo pipefail
         args=(git "$SOURCE" --redact --no-banner --exit-code 1)
         case "$MODE" in
           range)
