@@ -17,7 +17,7 @@ Reusable GitHub Actions workflows and composite actions that give .NET repositor
 
 ## Versioning
 
-Callers pin `@v1`. A stricter default is a major release: a higher floor, a new required check or a lower audit level becomes `v2`, and Renovate offers it as a pull request. Fixes and additions that do not tighten anything reach callers through the moving `v1` tag without a pull request. Do not call it with `@main`: a change on `main` would turn every caller red at once.
+Callers pin `@v1`. A stricter default is a major release: a higher floor, a new required check or an audit level that fails on more severities becomes `v2`, and Renovate offers it as a pull request. Fixes and additions that do not tighten anything reach callers through the moving `v1` tag without a pull request. Do not call it with `@main`: a change on `main` would turn every caller red at once.
 
 ## Adopt it in a .NET repo
 
@@ -55,7 +55,7 @@ The input tables below list everything `baseline.yml` accepts.
 
 ### 2. Add the coverage gate and the codecov config
 
-Run the gate right after the test step that collects coverage, in a job on a Linux runner:
+Run the gate right after the test step that collects coverage, in a job on a Linux runner. The test projects need the `coverlet.collector` package. Without it no `coverage.cobertura.xml` is written and the gate fails with `no-reports`.
 
 ```yaml
 jobs:
@@ -132,6 +132,8 @@ jobs:
           solution: MyRepo.slnx
           tag: ${{ github.ref_name }} # the release tag
 ```
+
+`github.ref_name` is the release tag only when the job runs on a tag or release event. A job that runs on `main` in a release-please flow passes release-please's `tag_name` output instead.
 
 The SBOM is CycloneDX JSON, with transitive packages and without test projects. With `upload: false` it only writes the file and reports its path in the `path` output.
 
@@ -296,7 +298,7 @@ If the repo goes public, add the `main` ruleset from step 6 and remove `codeql: 
 
 ### CodeQL upload refused
 
-The `codeql` job fails after the analysis, with a message that links here. GitHub refused the SARIF upload. There are two usual causes.
+The `codeql` job fails when the analysis or the upload fails, with a message that links here. The usual reason is that GitHub refused the SARIF upload, for one of two causes.
 
 1. **CodeQL default setup is on.** It refuses uploads from a workflow. In the repository settings under Code security, switch CodeQL analysis from default setup to off. This baseline runs CodeQL itself.
 2. **A private repo without GitHub Code Security.** Code scanning needs it. Either enable Code Security for the repo, or set `codeql: false`.
