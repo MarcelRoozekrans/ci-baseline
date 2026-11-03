@@ -124,6 +124,14 @@ jobs:
           source: ${{ steps.repo.outputs.repo }}
           log-opts: ${{ steps.repo.outputs.b }}..${{ steps.repo.outputs.c }}
           config: ${{ steps.cfg.outputs.path }}
+      - name: unknown-range
+        id: badrange
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: 0000000000000000000000000000000000000000..${{ steps.repo.outputs.c }}
       - name: Assert outcomes
         if: always()
         shell: bash
@@ -136,6 +144,8 @@ jobs:
           HIST_RESULT: ${{ steps.hist.outputs.result }}
           NOEXTEND: ${{ steps.noextend.outcome }}
           NOEXTEND_RESULT: ${{ steps.noextend.outputs.result }}
+          BADRANGE: ${{ steps.badrange.outcome }}
+          BADRANGE_RESULT: ${{ steps.badrange.outputs.result }}
         run: |
           fail=0
           expect() { # name actual expected
@@ -150,6 +160,9 @@ jobs:
           # A config that would replace the default rules must be refused before gitleaks runs.
           expect "config-without-default-rules outcome" "$NOEXTEND" failure
           expect "config-without-default-rules result" "$NOEXTEND_RESULT" error
+          # A range git cannot resolve must be an error, not a clean scan.
+          expect "unknown-range outcome" "$BADRANGE" failure
+          expect "unknown-range result" "$BADRANGE_RESULT" error
           exit "$fail"
 
   history-clean:

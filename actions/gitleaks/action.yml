@@ -60,6 +60,14 @@ runs:
           history) args+=("--log-opts=--all") ;;
           *) fail_error "mode must be range or history, got: $MODE" ;;
         esac
+        # gitleaks reports a range it cannot resolve as clean, so let git check it first.
+        # LOG_OPTS is unquoted on purpose: it holds git log options, split like gitleaks splits them.
+        if [ "$MODE" = range ]; then
+          # shellcheck disable=SC2086
+          if ! git -C "$SOURCE" log --format=%H $LOG_OPTS > /dev/null; then
+            fail_error "git log cannot resolve the range '$LOG_OPTS' in $SOURCE"
+          fi
+        fi
         # gitleaks reads the repo's .gitleaks.toml when no config is given.
         effective="$CONFIG"
         [ -n "$effective" ] || { [ -f "$SOURCE/.gitleaks.toml" ] && effective="$SOURCE/.gitleaks.toml"; }
