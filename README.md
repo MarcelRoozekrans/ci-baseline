@@ -53,6 +53,8 @@ jobs:
 
 Call it on `pull_request`, not `pull_request_target`. With `pull_request_target` the run has the base branch's secrets and a write token while it builds pull request code, so `baseline.yml` refuses that event. The `prepare`, `gitleaks`, `nuget-audit` and `trivy` jobs fail, and the `codeql` jobs are skipped because they need `prepare`.
 
+A `.gitleaks.toml` committed in the repo must extend the gitleaks default rules, or `baseline / gitleaks` fails; see [gitleaks configs extend the defaults](#gitleaks-configs-extend-the-defaults).
+
 Grant all three permissions even with `codeql: false`. A reusable workflow cannot widen the permissions its caller grants, and GitHub rejects the call at startup when the nested CodeQL job asks for permissions the caller did not give.
 
 The input tables below list everything `baseline.yml` accepts.
@@ -162,18 +164,7 @@ jobs:
 
 `GITLEAKS_CONFIG` is optional. It holds the TOML of a custom gitleaks config, for example extra rules for hostnames or internal addresses. Those patterns describe your private setup, so never commit that config to a repo that is public or will be. Keep it only as a secret. The report is uploaded as an artifact for 7 days, with the secrets redacted.
 
-The config must start from the gitleaks default rules:
-
-```toml
-[extend]
-useDefault = true
-
-[[rules]]
-id = "internal-hostname"
-regex = '''\b[a-z0-9-]+\.internal\.example\.com\b'''
-```
-
-Without `useDefault = true` a gitleaks config replaces the default rules instead of adding to them, and the scan would no longer find tokens or keys. The scan fails with an error when the config does not extend the defaults. The same check applies to a `.gitleaks.toml` committed in the repo, which gitleaks reads when no config is given.
+The config must extend the gitleaks default rules; see [gitleaks configs extend the defaults](#gitleaks-configs-extend-the-defaults).
 
 ### 5. Set the audit properties locally
 
@@ -291,6 +282,21 @@ Put it in the project that references the package, or in `Directory.Build.props`
 The guard only checks projects in the solution. A project that is reached only through a `ProjectReference` and is not listed in the solution is not guarded, so keep every project in the solution.
 
 `NU1905` means a package source gave no vulnerability data, so the packages from that source were not checked. It shows up as a warning and in the job summary. It does not fail the job, because that would block every repo with a feed that has no vulnerability data.
+
+### gitleaks configs extend the defaults
+
+gitleaks reads a config from two places here. `baseline / gitleaks` and `history-scan.yml` use a `.gitleaks.toml` committed in the repo, and `history-scan.yml` uses the `GITLEAKS_CONFIG` secret instead when it is set. Either config must start from the gitleaks default rules:
+
+```toml
+[extend]
+useDefault = true
+
+[[rules]]
+id = "internal-hostname"
+regex = '''\b[a-z0-9-]+\.internal\.example\.com\b'''
+```
+
+Without `useDefault = true` a gitleaks config replaces the default rules instead of adding to them, and the scan would no longer find tokens or keys. Both workflows fail with an error when the config in use does not extend the defaults.
 
 ### CodeQL off
 
