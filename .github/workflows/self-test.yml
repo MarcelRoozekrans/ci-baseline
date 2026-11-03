@@ -187,3 +187,28 @@ jobs:
           expect "nowarn guard-result" "$NOWARN_GUARD" violations
           expect "nowarn-package guard-result" "$NOWARNPKG_GUARD" violations
           exit "$fail"
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: clean
+        id: clean
+        uses: ./actions/trivy
+        with:
+          path: fixtures/dotnet-clean
+      - name: misconfig
+        id: misconfig
+        continue-on-error: true
+        uses: ./actions/trivy
+        with:
+          path: fixtures/iac-misconfig
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          MISCONFIG: ${{ steps.misconfig.outcome }}
+        run: |
+          [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }
+          [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }

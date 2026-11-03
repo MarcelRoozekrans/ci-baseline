@@ -1,0 +1,75 @@
+name: trivy
+description: Scan a path for vulnerabilities, secrets and misconfigurations, and optionally a container image, with a pinned Trivy binary. Fails on HIGH and CRITICAL findings.
+inputs:
+  path:
+    description: Path to scan with trivy fs.
+    default: "."
+  image:
+    description: Container image reference to scan with trivy image. Empty means no image scan.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install Trivy
+      shell: bash
+      env:
+        TRIVY_URL: https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz
+        TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+      run: ${{ github.action_path }}/../../lib/install-pinned.sh "$TRIVY_URL" "$TRIVY_SHA256" "$RUNNER_TEMP/trivy-bin"
+    - name: Run Trivy
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -uo pipefail
+        work=$(mktemp -d "$RUNNER_TEMP/trivy-XXXXXX")
+        overall=0
+
+        # Scan to JSON first: trivy exits 1 both for findings and for fatal
+        # errors, so a parseable report is what tells them apart. The table
+        # for the summary is rendered from that report with trivy convert.
+        scan() { # label report-name subcommand args...
+          local label=$1 name=$2 sub=$3
+          shift 3
+          local json="$work/$name.json"
+          trivy "$sub" --severity HIGH,CRITICAL --exit-code 1 --quiet \
+            --format json --output "$json" "$@"
+          local rc=$?
+          local count=""
+          if [ -s "$json" ]; then
+            count=$(jq -e '[.Results[]? | ((.Vulnerabilities // []) + (.Secrets // []) + (.Misconfigurations // [])) | length] | add // 0' "$json" 2>/dev/null) || count=""
+          fi
+          if [ -z "$count" ]; then
+            echo "trivy ($label): failed to run, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::trivy ($label) failed to run (exit $rc)"
+            [ "$rc" -eq 0 ] && rc=1
+            overall=$rc
+            return
+          fi
+          local table="$work/$name.txt"
+          if ! trivy convert --format table --severity HIGH,CRITICAL --output "$table" "$json"; then
+            : > "$table"
+          fi
+          if [ "$count" -eq 0 ] && [ "$rc" -eq 0 ]; then
+            echo "trivy ($label): 0 HIGH or CRITICAL findings, passed" >> "$GITHUB_STEP_SUMMARY"
+            return
+          fi
+          local noun=findings
+          [ "$count" -eq 1 ] && noun=finding
+          {
+            echo "trivy ($label): $count HIGH or CRITICAL $noun, failed"
+            echo
+            echo '```'
+            cat "$table"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::trivy ($label) found $count HIGH or CRITICAL $noun"
+          overall=1
+        }
+
+        scan "fs $SCAN_PATH" fs fs --scanners vuln,secret,misconfig -- "$SCAN_PATH"
+        if [ -n "$IMAGE" ]; then
+          scan "image $IMAGE" image image -- "$IMAGE"
+        fi
+        exit "$overall"
