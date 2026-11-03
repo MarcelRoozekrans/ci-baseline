@@ -32,7 +32,17 @@ def validate_floor(floor, reason):
     if math.isnan(value) or value < 0 or value > 100:
         raise GateError("floor '%s' must be between 0 and 100" % floor)
     if value < MIN_FLOOR and not (reason or "").strip():
-        raise GateError("floor %s is below 80; set floor-override-reason" % value)
+        raise GateError("floor %s is below 80; set floor-override-reason" % _fmt(value))
+    return value
+
+
+def validate_max_drop(max_drop):
+    try:
+        value = float(str(max_drop).strip())
+    except ValueError:
+        raise GateError("max-drop '%s' is not a number" % max_drop)
+    if math.isnan(value) or math.isinf(value) or value < 0:
+        raise GateError("max-drop '%s' must be a number of at least 0" % max_drop)
     return value
 
 
@@ -75,6 +85,9 @@ def codecov_policy_errors(cfg, max_drop):
     if not isinstance(default, dict):
         return [where + " must be a mapping with target and threshold"]
     errors = []
+    narrowed = [key for key in ("paths", "flags") if key in default]
+    if narrowed:
+        errors.append(where + " has " + "/".join(narrowed) + ": project status narrowed by paths/flags")
     if default.get("informational") is True:
         errors.append(where + ".informational is true: the status can never fail")
     if "target" in default and str(default["target"]).strip().lower() != "auto":
@@ -132,10 +145,7 @@ def main(argv=None):
             if value < MIN_FLOOR:
                 _summary("Coverage floor lowered to %s%%. Reason: %s" % (_fmt(value), args[1].strip()))
         elif command == "check-codecov" and len(args) == 2:
-            try:
-                max_drop = float(args[1])
-            except ValueError:
-                raise GateError("max-drop '%s' is not a number" % args[1])
+            max_drop = validate_max_drop(args[1])
             path = find_codecov_config(args[0])
             errors = codecov_policy_errors(_load_config(path), max_drop)
             if errors:
@@ -143,15 +153,17 @@ def main(argv=None):
                 raise GateError("; ".join("%s: %s" % (path, e) for e in errors))
             _summary("codecov policy: %s enforces project status" % path)
         elif command == "check-floor" and len(args) == 2:
-            floor = float(args[1])
+            floor = validate_floor(args[1], "reason")
             try:
                 with open(args[0]) as handle:
                     value = line_coverage(json.load(handle))
             except (OSError, ValueError) as exc:
                 raise GateError("cannot read coverage summary %s: %s" % (args[0], exc))
-            _summary("Line coverage: %s%% (floor %s%%)" % (_fmt(round(value, 2)), _fmt(floor)))
-            if value < floor:
-                raise GateError("line coverage %s%% is below the floor of %s%%" % (_fmt(round(value, 2)), _fmt(floor)))
+            # Compare the value that is printed, so "80% is below 80%" cannot happen.
+            shown = round(value, 2)
+            _summary("Line coverage: %s%% (floor %s%%)" % (_fmt(shown), _fmt(floor)))
+            if shown < floor:
+                raise GateError("line coverage %s%% is below the floor of %s%%" % (_fmt(shown), _fmt(floor)))
         else:
             raise GateError(usage)
     except GateError as exc:

@@ -264,6 +264,13 @@ jobs:
         with:
           working-directory: fixtures/dotnet-clean
           reports: nothing/**/*.xml
+      - name: no-reports-literal-path
+        id: noreportsliteral
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+          reports: nothing/coverage.cobertura.xml
       - name: Assert outcomes
         if: always()
         shell: bash
@@ -276,6 +283,9 @@ jobs:
           NOREASON_RESULT: ${{ steps.noreason.outputs.result }}
           WITHREASON: ${{ steps.withreason.outcome }}
           WITHREASON_RESULT: ${{ steps.withreason.outputs.result }}
+          WITHREASON_REASON: ${{ steps.withreason.outputs.floor-override-reason }}
+          NOREPORTSLITERAL: ${{ steps.noreportsliteral.outcome }}
+          NOREPORTSLITERAL_RESULT: ${{ steps.noreportsliteral.outputs.result }}
           NOREPORTS: ${{ steps.noreports.outcome }}
           NOREPORTS_RESULT: ${{ steps.noreports.outputs.result }}
         run: |
@@ -292,6 +302,9 @@ jobs:
           expect "floor 40 without reason result" "$NOREASON_RESULT" invalid-floor
           expect "floor 40 with reason outcome" "$WITHREASON" success
           expect "floor 40 with reason result" "$WITHREASON_RESULT" pass
+          expect "floor 40 with reason output" "$WITHREASON_REASON" "Self-test fixture with deliberately low coverage"
+          expect "no-reports literal path outcome" "$NOREPORTSLITERAL" failure
+          expect "no-reports literal path result" "$NOREPORTSLITERAL_RESULT" no-reports
           expect "no-reports outcome" "$NOREPORTS" failure
           expect "no-reports result" "$NOREPORTS_RESULT" no-reports
           exit "$fail"
