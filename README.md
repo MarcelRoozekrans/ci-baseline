@@ -176,7 +176,7 @@ Optional, but a local restore then shows the same findings as CI. In `Directory.
 </Project>
 ```
 
-CI sets these itself, with the reporting level at `low`, so every advisory shows up in the job summary. `nuget-audit-level` only decides which ones fail the job.
+CI sets these itself, with the reporting level at `low`, so every advisory shows up in the job summary. `nuget-audit-level` only decides which ones fail the job. CI also restores with `TreatWarningsAsErrors=false`, so in a repo that turns warnings into errors an advisory below `nuget-audit-level` still only warns.
 
 ### 6. Require the checks in the `main` ruleset
 

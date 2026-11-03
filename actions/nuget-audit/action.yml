@@ -128,7 +128,10 @@ runs:
         LOG: ${{ steps.resolve.outputs.log }}
       run: |
         set -euo pipefail
-        dotnet restore "$SLN" --force -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low "-p:WarningsAsErrors=\"$CODES\"" 2>&1 | tee "$LOG"
+        # TreatWarningsAsErrors=false: an advisory below nuget-audit-level stays a
+        # warning even in a repo that turns all warnings into errors.
+        dotnet restore "$SLN" --force -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low \
+          -p:TreatWarningsAsErrors=false "-p:WarningsAsErrors=\"$CODES\"" 2>&1 | tee "$LOG"
     - name: Summarize advisories
       id: summary
       if: always()

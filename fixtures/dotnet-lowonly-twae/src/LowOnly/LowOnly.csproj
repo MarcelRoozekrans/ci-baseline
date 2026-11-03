@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Turns every warning into an error, so the low NU1901 below would fail restore without the action's override. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Zio 0.22.1 has one advisory, and it is low: GHSA-h39g-6x3c-7fq9. -->
+    <PackageReference Include="Zio" Version="0.22.1" />
+  </ItemGroup>
+</Project>

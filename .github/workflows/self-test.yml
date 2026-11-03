@@ -166,12 +166,19 @@ jobs:
         uses: ./actions/nuget-audit
         with:
           working-directory: fixtures/dotnet-nowarn-package
+      - name: low-only-warnings-as-errors
+        id: lowonly
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-lowonly-twae
       - name: Assert outcomes
         if: always()
         shell: bash
         env:
           CLEAN: ${{ steps.clean.outcome }}
           CLEAN_GUARD: ${{ steps.clean.outputs.guard-result }}
+          LOWONLY: ${{ steps.lowonly.outcome }}
+          LOWONLY_CODES: ${{ steps.lowonly.outputs.advisory-codes }}
           VULNERABLE: ${{ steps.vulnerable.outcome }}
           VULNERABLE_GUARD: ${{ steps.vulnerable.outputs.guard-result }}
           VULNERABLE_CODES: ${{ steps.vulnerable.outputs.advisory-codes }}
@@ -197,6 +204,10 @@ jobs:
           expect "vulnerable advisory-codes" "$VULNERABLE_CODES" NU1903
           expect "nowarn guard-result" "$NOWARN_GUARD" violations
           expect "nowarn-package guard-result" "$NOWARNPKG_GUARD" violations
+          # TreatWarningsAsErrors=true in the project must not turn a low advisory
+          # into a failure at the default level; the advisory must still be reported.
+          expect "low-only outcome" "$LOWONLY" success
+          expect "low-only advisory-codes" "$LOWONLY_CODES" NU1901
           exit "$fail"
 
   trivy:
