@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum" 2>&1 | tee "$RUNNER_TEMP/badsum.log"
       - name: Fail unless the installer rejected the bad checksum
-        if: always()
+        if: always() && steps.badsum.outcome != 'skipped'
         shell: bash
         run: |
           if [ "${{ steps.badsum.outcome }}" != "failure" ] || ! grep -q 'checksum mismatch' "$RUNNER_TEMP/badsum.log"; then
