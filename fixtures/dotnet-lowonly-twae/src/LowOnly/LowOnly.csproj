@@ -6,6 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- Zio 0.22.1 has one advisory, and it is low: GHSA-h39g-6x3c-7fq9. -->
-    <PackageReference Include="Zio" Version="0.22.1" />
+    <PackageReference Include="Zio" Version="0.22.2" />
   </ItemGroup>
 </Project>
