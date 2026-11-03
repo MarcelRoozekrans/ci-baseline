@@ -104,7 +104,7 @@ def main(argv=None):
             return 1 if lines else 0
     except BaselineError as exc:
         print("::error::" + str(exc))
-        return 1
+        return 2
     return 0
 
 

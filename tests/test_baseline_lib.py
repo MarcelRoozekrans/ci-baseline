@@ -1,5 +1,7 @@
 import os
 import sys
+import io
+import json
 import tempfile
 import unittest
 
@@ -55,8 +57,9 @@ class ResolveSolutionTest(unittest.TestCase):
         self.assertIn("B.slnx", str(ctx.exception))
 
     def test_resolve_none_raises(self):
-        with self.assertRaises(BaselineError):
+        with self.assertRaises(BaselineError) as ctx:
             baseline_lib.resolve_solution(self.root, "")
+        self.assertIn("no .sln or .slnx found in " + self.root, str(ctx.exception))
 
     def test_resolve_explicit_missing_raises(self):
         missing = os.path.join(self.root, "Nope.sln")
@@ -138,6 +141,31 @@ class NowarnViolationsTest(unittest.TestCase):
         self.assertEqual(
             baseline_lib.nowarn_violations([{"project": "p", "tfm": "t"}], self.CODES), []
         )
+
+
+class CliExitCodeTest(unittest.TestCase):
+    def run_check(self, stdin_text):
+        old_in, old_out = sys.stdin, sys.stdout
+        sys.stdin, sys.stdout = io.StringIO(stdin_text), io.StringIO()
+        try:
+            code = baseline_lib.main(["nowarn-check", "--codes", "NU1903"])
+            return code, sys.stdout.getvalue()
+        finally:
+            sys.stdin, sys.stdout = old_in, old_out
+
+    def test_clean_exits_0(self):
+        self.assertEqual(self.run_check(json.dumps([evaluation()]))[0], 0)
+
+    def test_violation_exits_1(self):
+        code, out = self.run_check(json.dumps([evaluation(no_warn="NU1903")]))
+        self.assertEqual(code, 1)
+        self.assertIn("NoWarn contains NU1903", out)
+        self.assertNotIn("::error::", out)
+
+    def test_bad_json_exits_2_with_single_error_prefix(self):
+        code, out = self.run_check("not json")
+        self.assertEqual(code, 2)
+        self.assertEqual(out.count("::error::"), 1)
 
 
 if __name__ == "__main__":

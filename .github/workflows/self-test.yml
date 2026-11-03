@@ -160,8 +160,10 @@ jobs:
         shell: bash
         env:
           CLEAN: ${{ steps.clean.outcome }}
+          CLEAN_GUARD: ${{ steps.clean.outputs.guard-result }}
           VULNERABLE: ${{ steps.vulnerable.outcome }}
           VULNERABLE_GUARD: ${{ steps.vulnerable.outputs.guard-result }}
+          VULNERABLE_CODES: ${{ steps.vulnerable.outputs.advisory-codes }}
           NOWARN: ${{ steps.nowarn.outcome }}
           NOWARN_GUARD: ${{ steps.nowarn.outputs.guard-result }}
           NOWARNPKG: ${{ steps.nowarnpkg.outcome }}
@@ -178,7 +180,10 @@ jobs:
           # The vulnerable fixture must pass the guard and fail in restore. The
           # nowarn fixtures must fail in the guard: a failure from the restore
           # advisory would prove nothing about the guard.
+          expect "clean guard-result" "$CLEAN_GUARD" clean
           expect "vulnerable guard-result" "$VULNERABLE_GUARD" clean
+          # Restore must fail because of the advisory, not for another reason.
+          expect "vulnerable advisory-codes" "$VULNERABLE_CODES" NU1903
           expect "nowarn guard-result" "$NOWARN_GUARD" violations
           expect "nowarn-package guard-result" "$NOWARNPKG_GUARD" violations
           exit "$fail"
