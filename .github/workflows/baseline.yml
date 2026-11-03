@@ -56,7 +56,6 @@ jobs:
           echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
           echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
           exit 1
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The internal actions come from this workflow's own repository and commit, the
       # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
       # matching actions.
@@ -92,6 +91,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       # The internal actions come from this workflow's own repository and commit, the
       # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
       # matching actions.
@@ -156,6 +156,8 @@ jobs:
       # fixtures in the workspace would end up in the caller's analysis.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.codeql
+        with:
+          persist-credentials: false
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         if: inputs.codeql
         with:
@@ -191,6 +193,8 @@ jobs:
           echo "NuGetAudit disabled by caller input: not a .NET repo" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.dotnet
+        with:
+          persist-credentials: false
       # The internal actions come from this workflow's own repository and commit, the
       # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
       # matching actions.
@@ -231,6 +235,8 @@ jobs:
         run: echo "Trivy disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.trivy
+        with:
+          persist-credentials: false
       # The internal actions come from this workflow's own repository and commit, the
       # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
       # matching actions.
