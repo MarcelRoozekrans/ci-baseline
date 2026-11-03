@@ -1,0 +1,212 @@
+name: baseline
+
+on:
+  workflow_call:
+    inputs:
+      languages:
+        description: Comma separated CodeQL languages, one codeql check per language.
+        type: string
+        default: csharp
+      dotnet-version:
+        description: .NET SDK version for setup-dotnet, or global-json to use the repo's global.json.
+        type: string
+        default: 10.0.x
+      solution:
+        description: Path of the .sln or .slnx for NuGetAudit. Empty means the single solution file in the repo root.
+        type: string
+        default: ""
+      dotnet:
+        description: Run NuGetAudit. Set to false for a repo without .NET code.
+        type: boolean
+        default: true
+      nuget-audit-level:
+        description: "Lowest advisory severity that fails NuGetAudit: low, moderate, high or critical."
+        type: string
+        default: moderate
+      codeql:
+        description: Run CodeQL.
+        type: boolean
+        default: true
+      trivy:
+        description: Run Trivy.
+        type: boolean
+        default: false
+      trivy-path:
+        description: Path that trivy fs scans.
+        type: string
+        default: .
+      trivy-image:
+        description: Container image that Trivy also scans. Empty means no image scan.
+        type: string
+        default: ""
+      baseline-ref:
+        description: Ref of MarcelRoozekrans/ci-baseline that supplies the internal actions.
+        type: string
+        default: v1
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      languages: ${{ steps.split.outputs.languages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MarcelRoozekrans/ci-baseline
+          ref: ${{ inputs.baseline-ref }}
+          path: .ci-baseline
+          persist-credentials: false
+      - name: Split languages
+        id: split
+        env:
+          LANGUAGES: ${{ inputs.languages }}
+        run: |
+          set -euo pipefail
+          # The CLI prints its own ::error:: line on failure.
+          if ! langs=$(python3 .ci-baseline/lib/baseline_lib.py split-languages --languages "$LANGUAGES"); then echo "$langs"; exit 1; fi
+          echo "languages=$langs" >> "$GITHUB_OUTPUT"
+
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MarcelRoozekrans/ci-baseline
+          ref: ${{ inputs.baseline-ref }}
+          path: .ci-baseline
+          persist-credentials: false
+      - name: Check the pull request commits
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::PR base commit $BASE_SHA is not in the checkout, so the PR range cannot be scanned. The checkout needs fetch-depth 0."
+            exit 1
+          fi
+          # pull_request_target checks out the base branch; fetch the PR head without checking it out.
+          if ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --quiet origin "$HEAD_SHA" || true
+          fi
+          if ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            echo "::error::PR head commit $HEAD_SHA is not in the checkout and could not be fetched, so the PR range cannot be scanned."
+            exit 1
+          fi
+      - name: Scan the pull request commits
+        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        uses: ./.ci-baseline/actions/gitleaks
+        with:
+          mode: range
+          log-opts: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+      - name: Not a pull request
+        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+        run: |
+          echo "Not a pull request: the PR scan runs on pull requests, history-scan.yml covers history." >> "$GITHUB_STEP_SUMMARY"
+
+  codeql:
+    name: codeql (${{ matrix.language }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.prepare.outputs.languages) }}
+    steps:
+      - name: CodeQL disabled
+        if: ${{ !inputs.codeql }}
+        run: echo "CodeQL disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
+      # No ci-baseline checkout here: CodeQL uses none of its actions, and its
+      # fixtures in the workspace would end up in the caller's analysis.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.codeql
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: inputs.codeql
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.language == 'csharp' && 'none' || '' }}
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        id: analyze
+        if: inputs.codeql
+        continue-on-error: true
+        with:
+          category: /language:${{ matrix.language }}
+      - name: Explain a failed CodeQL analysis
+        if: steps.analyze.outcome == 'failure'
+        run: |
+          {
+            echo "CodeQL analysis or upload failed. The two usual causes:"
+            echo
+            echo "- a private repository without GitHub Code Security, which code scanning needs;"
+            echo "- CodeQL default setup still on in the repository settings, which refuses uploads from this workflow."
+            echo
+            echo "See https://github.com/MarcelRoozekrans/ci-baseline#codeql-upload-refused"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::CodeQL analysis or upload failed: a private repo without Code Security, or CodeQL default setup still on. See https://github.com/MarcelRoozekrans/ci-baseline#codeql-upload-refused"
+          exit 1
+
+  nuget-audit:
+    name: nuget-audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: NuGetAudit disabled
+        if: ${{ !inputs.dotnet }}
+        run: |
+          echo "NuGetAudit disabled by caller input: not a .NET repo" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.dotnet
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.dotnet
+        with:
+          repository: MarcelRoozekrans/ci-baseline
+          ref: ${{ inputs.baseline-ref }}
+          path: .ci-baseline
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        if: inputs.dotnet
+        with:
+          dotnet-version: ${{ inputs.dotnet-version != 'global-json' && inputs.dotnet-version || '' }}
+          global-json-file: ${{ inputs.dotnet-version == 'global-json' && 'global.json' || '' }}
+      - uses: ./.ci-baseline/actions/nuget-audit
+        if: inputs.dotnet
+        with:
+          solution: ${{ inputs.solution }}
+          nuget-audit-level: ${{ inputs.nuget-audit-level }}
+
+  trivy:
+    name: trivy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trivy disabled
+        if: ${{ !inputs.trivy }}
+        run: echo "Trivy disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.trivy
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.trivy
+        with:
+          repository: MarcelRoozekrans/ci-baseline
+          ref: ${{ inputs.baseline-ref }}
+          path: .ci-baseline
+          persist-credentials: false
+      - uses: ./.ci-baseline/actions/trivy
+        if: inputs.trivy
+        with:
+          path: ${{ inputs.trivy-path }}
+          image: ${{ inputs.trivy-image }}
+          # The ci-baseline checkout holds deliberately failing fixtures.
+          skip-dirs: "**/.ci-baseline"

@@ -7,6 +7,9 @@ inputs:
   image:
     description: Container image reference to scan with trivy image. Empty means no image scan.
     default: ""
+  skip-dirs:
+    description: "Comma separated directories or globs that trivy fs leaves out, for example **/.ci-baseline. Empty means none."
+    default: ""
 outputs:
   result:
     description: "clean, findings or error. error beats findings beats clean across fs and image."
@@ -26,6 +29,7 @@ runs:
       env:
         SCAN_PATH: ${{ inputs.path }}
         IMAGE: ${{ inputs.image }}
+        SKIP_DIRS: ${{ inputs.skip-dirs }}
       run: |
         # Actions runs bash with -e; the exit codes below are handled by hand.
         set +e -uo pipefail
@@ -84,7 +88,9 @@ runs:
           overall=1
         }
 
-        scan "fs $SCAN_PATH" fs fs --scanners vuln,secret,misconfig -- "$SCAN_PATH"
+        skip=()
+        [ -n "$SKIP_DIRS" ] && skip=(--skip-dirs "$SKIP_DIRS")
+        scan "fs $SCAN_PATH" fs fs --scanners vuln,secret,misconfig "${skip[@]}" -- "$SCAN_PATH"
         if [ -n "$IMAGE" ]; then
           scan "image $IMAGE" image image -- "$IMAGE"
         else

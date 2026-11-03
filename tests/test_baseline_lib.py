@@ -180,5 +180,42 @@ class CliExitCodeTest(unittest.TestCase):
         self.assertEqual(code, 2)
 
 
+class SplitLanguagesTest(unittest.TestCase):
+    def test_split_languages_trims(self):
+        self.assertEqual(baseline_lib.split_languages(" csharp , actions "), ["csharp", "actions"])
+
+    def test_split_languages_dedup(self):
+        self.assertEqual(
+            baseline_lib.split_languages("csharp,actions,csharp,,actions"), ["csharp", "actions"]
+        )
+
+    def test_split_languages_empty_raises(self):
+        for value in ("", " ", " , ,"):
+            with self.assertRaises(BaselineError):
+                baseline_lib.split_languages(value)
+
+    def test_split_languages_cli_prints_compact_json(self):
+        old_out = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            code = baseline_lib.main(["split-languages", "--languages", "csharp, actions"])
+            out = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_out
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), '["csharp","actions"]')
+
+    def test_split_languages_cli_empty_exits_2(self):
+        old_out = sys.stdout
+        sys.stdout = io.StringIO()
+        try:
+            code = baseline_lib.main(["split-languages", "--languages", " "])
+            out = sys.stdout.getvalue()
+        finally:
+            sys.stdout = old_out
+        self.assertEqual(code, 2)
+        self.assertTrue(out.startswith("::error::"))
+
+
 if __name__ == "__main__":
     unittest.main()

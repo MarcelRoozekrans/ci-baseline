@@ -44,6 +44,18 @@ def failing_codes(level):
     return list(LEVELS[key])
 
 
+def split_languages(value):
+    """Comma separated CodeQL languages as a list: trimmed, no empties, first occurrence kept."""
+    result = []
+    for part in (value or "").split(","):
+        lang = part.strip()
+        if lang and lang not in result:
+            result.append(lang)
+    if not result:
+        raise BaselineError("languages is empty; give at least one CodeQL language, for example csharp")
+    return result
+
+
 def _tokens(value):
     return [t.strip().upper() for t in re.split(r"[;,]", value or "") if t.strip()]
 
@@ -87,10 +99,14 @@ def main(argv=None):
     p.add_argument("--level", required=True)
     p = sub.add_parser("nowarn-check")
     p.add_argument("--codes", required=True, help="semicolon separated codes")
+    p = sub.add_parser("split-languages")
+    p.add_argument("--languages", required=True, help="comma separated languages")
     args = parser.parse_args(argv)
     try:
         if args.command == "resolve-solution":
             print(resolve_solution(args.root, args.solution))
+        elif args.command == "split-languages":
+            print(json.dumps(split_languages(args.languages), separators=(",", ":")))
         elif args.command == "failing-codes":
             print(";".join(failing_codes(args.level)))
         else:
