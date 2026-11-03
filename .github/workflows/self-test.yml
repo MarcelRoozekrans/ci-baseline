@@ -109,6 +109,21 @@ jobs:
         with:
           mode: history
           source: ${{ steps.repo.outputs.repo }}
+      - name: Write a config that does not extend the default rules
+        id: cfg
+        shell: bash
+        run: |
+          printf '[[rules]]\nid = "only-this"\nregex = "only-this-[0-9]+"\n' > "$RUNNER_TEMP/no-extend.toml"
+          echo "path=$RUNNER_TEMP/no-extend.toml" >> "$GITHUB_OUTPUT"
+      - name: config-without-default-rules
+        id: noextend
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.b }}..${{ steps.repo.outputs.c }}
+          config: ${{ steps.cfg.outputs.path }}
       - name: Assert outcomes
         if: always()
         shell: bash
@@ -119,6 +134,8 @@ jobs:
           NOLEAK_RESULT: ${{ steps.noleak.outputs.result }}
           HIST: ${{ steps.hist.outcome }}
           HIST_RESULT: ${{ steps.hist.outputs.result }}
+          NOEXTEND: ${{ steps.noextend.outcome }}
+          NOEXTEND_RESULT: ${{ steps.noextend.outputs.result }}
         run: |
           fail=0
           expect() { # name actual expected
@@ -130,6 +147,9 @@ jobs:
           expect "range-without-leak result" "$NOLEAK_RESULT" clean
           expect "history outcome" "$HIST" failure
           expect "history result" "$HIST_RESULT" findings
+          # A config that would replace the default rules must be refused before gitleaks runs.
+          expect "config-without-default-rules outcome" "$NOEXTEND" failure
+          expect "config-without-default-rules result" "$NOEXTEND_RESULT" error
           exit "$fail"
 
   history-clean:

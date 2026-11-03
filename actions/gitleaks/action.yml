@@ -11,7 +11,7 @@ inputs:
     description: "git log options for range mode, for example base..head."
     default: ""
   config:
-    description: Path to a gitleaks TOML. Empty means gitleaks defaults plus the repo's .gitleaks.toml if present.
+    description: "Path to a gitleaks TOML. Empty means the repo's .gitleaks.toml if present, else the gitleaks defaults. The config in use must have an [extend] table with useDefault = true, or the run fails: without it the config replaces the default rules."
     default: ""
   report-path:
     description: Where to write a JSON report. Empty means no report.
@@ -39,6 +39,7 @@ runs:
         LOG_OPTS: ${{ inputs.log-opts }}
         CONFIG: ${{ inputs.config }}
         REPORT_PATH: ${{ inputs.report-path }}
+        LIB: ${{ github.action_path }}/../../lib/baseline_lib.py
       run: |
         # Actions runs bash with -e; the exit codes below are handled by hand.
         set +e -uo pipefail
@@ -48,6 +49,8 @@ runs:
           echo "::error::$1"
           exit 1
         }
+        # gitleaks would otherwise pick its config from these instead of from the checks below.
+        unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
         args=(git "$SOURCE" --redact --no-banner --exit-code 1)
         case "$MODE" in
           range)
@@ -57,6 +60,15 @@ runs:
           history) args+=("--log-opts=--all") ;;
           *) fail_error "mode must be range or history, got: $MODE" ;;
         esac
+        # gitleaks reads the repo's .gitleaks.toml when no config is given.
+        effective="$CONFIG"
+        [ -n "$effective" ] || { [ -f "$SOURCE/.gitleaks.toml" ] && effective="$SOURCE/.gitleaks.toml"; }
+        if [ -n "$effective" ]; then
+          # The CLI prints a single ::error:: line on failure; pass its text on.
+          if ! msg=$(python3 "$LIB" gitleaks-config --path "$effective"); then
+            fail_error "${msg#::error::}"
+          fi
+        fi
         [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
         report=${REPORT_PATH:-$RUNNER_TEMP/gitleaks-report-$$.json}
         rm -f "$report"

@@ -162,6 +162,19 @@ jobs:
 
 `GITLEAKS_CONFIG` is optional. It holds the TOML of a custom gitleaks config, for example extra rules for hostnames or internal addresses. Those patterns describe your private setup, so never commit that config to a repo that is public or will be. Keep it only as a secret. The report is uploaded as an artifact for 7 days, with the secrets redacted.
 
+The config must start from the gitleaks default rules:
+
+```toml
+[extend]
+useDefault = true
+
+[[rules]]
+id = "internal-hostname"
+regex = '''\b[a-z0-9-]+\.internal\.example\.com\b'''
+```
+
+Without `useDefault = true` a gitleaks config replaces the default rules instead of adding to them, and the scan would no longer find tokens or keys. The scan fails with an error when the config does not extend the defaults. The same check applies to a `.gitleaks.toml` committed in the repo, which gitleaks reads when no config is given.
+
 ### 5. Set the audit properties locally
 
 Optional, but a local restore then shows the same findings as CI. In `Directory.Build.props`:

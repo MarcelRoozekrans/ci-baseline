@@ -212,5 +212,56 @@ class SplitLanguagesTest(unittest.TestCase):
         self.assertTrue(out.startswith("::error::"))
 
 
+class GitleaksConfigTest(unittest.TestCase):
+    def config(self, text):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False)
+        self.addCleanup(os.unlink, handle.name)
+        with handle:
+            handle.write(text)
+        return handle.name
+
+    def test_extends_default_passes(self):
+        path = self.config('title = "x"\n[extend]\nuseDefault = true\n\n[[rules]]\nid = "host"\nregex = "a"\n')
+        baseline_lib.check_gitleaks_config(path)
+
+    def test_key_case_is_ignored_like_gitleaks_does(self):
+        baseline_lib.check_gitleaks_config(self.config("[Extend]\nusedefault = true\n"))
+
+    def test_no_extend_table_raises(self):
+        path = self.config('[[rules]]\nid = "host"\nregex = "a"\n')
+        with self.assertRaisesRegex(BaselineError, "useDefault = true"):
+            baseline_lib.check_gitleaks_config(path)
+
+    def test_use_default_false_raises(self):
+        with self.assertRaises(BaselineError):
+            baseline_lib.check_gitleaks_config(self.config("[extend]\nuseDefault = false\n"))
+
+    def test_use_default_string_raises(self):
+        with self.assertRaises(BaselineError):
+            baseline_lib.check_gitleaks_config(self.config('[extend]\nuseDefault = "true"\n'))
+
+    def test_extend_path_only_raises(self):
+        with self.assertRaises(BaselineError):
+            baseline_lib.check_gitleaks_config(self.config('[extend]\npath = "other.toml"\n'))
+
+    def test_invalid_toml_raises(self):
+        with self.assertRaisesRegex(BaselineError, "not valid TOML"):
+            baseline_lib.check_gitleaks_config(self.config("[extend\n"))
+
+    def test_missing_file_raises(self):
+        with self.assertRaises(BaselineError):
+            baseline_lib.check_gitleaks_config(os.path.join(tempfile.gettempdir(), "no-such-gitleaks.toml"))
+
+    def test_cli_exit_codes(self):
+        good = self.config("[extend]\nuseDefault = true\n")
+        bad = self.config("[[rules]]\nid = 'x'\n")
+        for path, expected in ((good, 0), (bad, 2)):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = baseline_lib.main(["gitleaks-config", "--path", path])
+            self.assertEqual(code, expected)
+            self.assertEqual(buf.getvalue().count("::error::"), expected // 2)
+
+
 if __name__ == "__main__":
     unittest.main()
