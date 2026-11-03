@@ -325,7 +325,7 @@ The release workflow moves the `v1` tag to the release commit. When that job fai
 git tag -f v1 <sha> && git push -f origin refs/tags/v1
 ```
 
-`<sha>` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo.
+`<sha>` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
 
 ### `codecov/project` never reports
 
@@ -337,4 +337,4 @@ The gate runs on Linux only in v1. Run it in a Linux job.
 
 ## Checks on this repo
 
-`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, and runs each internal action on a fixture that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.
+`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, calls it a second time with CodeQL, NuGetAudit and Trivy turned off and expects that call to pass, and runs each internal action on a fixture that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.

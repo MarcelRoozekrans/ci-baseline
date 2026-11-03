@@ -166,6 +166,29 @@ jobs:
       trivy: true
       trivy-path: fixtures/dotnet-clean
 
+  # Every optional check off: each job must still run, report and pass.
+  baseline-disabled:
+    uses: ./.github/workflows/baseline.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      codeql: false
+      dotnet: false
+      trivy: false
+
+  baseline-disabled-result:
+    needs: baseline-disabled
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the disabled call passed
+        env:
+          RESULT: ${{ needs.baseline-disabled.result }}
+        run: |
+          [ "$RESULT" = success ] || { echo "::error::baseline-disabled result was '$RESULT', expected success"; exit 1; }
+
   nuget-audit:
     runs-on: ubuntu-latest
     steps:
