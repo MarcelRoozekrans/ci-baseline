@@ -19,6 +19,8 @@ Reusable GitHub Actions workflows and composite actions that give .NET repositor
 
 Callers pin `@v1`. A stricter default is a major release: a higher floor, a new required check or an audit level that fails on more severities becomes `v2`, and Renovate offers it as a pull request. Fixes and additions that do not tighten anything reach callers through the moving `v1` tag without a pull request. Do not call it with `@main`: a change on `main` would turn every caller red at once.
 
+A full commit SHA of a release works as a pin too, for example `@<sha> # v1.2.0`. The workflows check out their internal actions from the commit that the caller's `uses:` resolved to, so a caller on a SHA or on a tag gets the actions from that same commit.
+
 ## Adopt it in a .NET repo
 
 The steps fit in one pull request.
@@ -209,15 +211,10 @@ Delete `.github/dependabot.yml` if there is one. Renovate does the dependency up
 | `trivy` | `false` | Run Trivy on the files, and on `trivy-image` when set. Fails on HIGH and CRITICAL. |
 | `trivy-path` | `.` | Path that `trivy fs` scans. |
 | `trivy-image` | empty | Container image that Trivy also scans. Empty means no image scan. |
-| `baseline-ref` | `v1` | Self-test only, do not set. Ref of this repo that supplies the internal actions. |
 
-### history-scan.yml inputs
+### history-scan.yml
 
-| Input | Default | What it does |
-| --- | --- | --- |
-| `baseline-ref` | `v1` | Self-test only, do not set. |
-
-The workflow also takes the optional secret `GITLEAKS_CONFIG`, described in step 4.
+`history-scan.yml` takes no inputs. It takes the optional secret `GITLEAKS_CONFIG`, described in step 4.
 
 ### coverage-gate inputs
 

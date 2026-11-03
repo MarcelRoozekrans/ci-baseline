@@ -2,11 +2,6 @@ name: history-scan
 
 on:
   workflow_call:
-    inputs:
-      baseline-ref:
-        description: Ref of MarcelRoozekrans/ci-baseline that supplies the internal actions.
-        type: string
-        default: v1
     secrets:
       GITLEAKS_CONFIG:
         description: Optional gitleaks TOML content, used instead of the repo's own config.
@@ -25,10 +20,22 @@ jobs:
           fetch-tags: true
       - name: Fetch all branches
         run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: MarcelRoozekrans/ci-baseline
-          ref: ${{ inputs.baseline-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
       - name: Write gitleaks config

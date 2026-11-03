@@ -21,7 +21,7 @@ README = """# t
 | Input | Default | What it does |
 | --- | --- | --- |
 | `languages` | `csharp` | x |
-| `baseline-ref` | `v1` | self-test only |
+| `solution` | empty | x |
 
 ### coverage-gate inputs
 
@@ -49,13 +49,16 @@ coverage:
 BASELINE = (
     "on:\n  workflow_call:\n    inputs:\n"
     "      languages:\n        default: csharp\n"
-    "      baseline-ref:\n        default: v1\n"
+    "      solution:\n        default: ''\n"
     "jobs: {}\n"
 )
 GATE = "name: g\ninputs:\n  floor:\n    default: '80'\nruns:\n  using: composite\n  steps: []\n"
 
 
-def make_repo(root, readme=README, baseline=BASELINE, gate=GATE, codecov=CODECOV, extra_ref=""):
+HISTORY = "on:\n  workflow_call:\n    secrets:\n      GITLEAKS_CONFIG:\n        required: false\njobs: {}\n"
+
+
+def make_repo(root, readme=README, baseline=BASELINE, gate=GATE, codecov=CODECOV, extra_ref="", history=HISTORY):
     def write(rel, text):
         path = os.path.join(root, rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -66,12 +69,13 @@ def make_repo(root, readme=README, baseline=BASELINE, gate=GATE, codecov=CODECOV
     write(".github/workflows/baseline.yml", baseline + extra_ref)
     write("actions/coverage-gate/action.yml", gate)
     write("fixtures/dotnet-clean/codecov.yml", codecov)
+    write(".github/workflows/history-scan.yml", history)
 
 
 class TableTest(unittest.TestCase):
     def test_table_keys(self):
         self.assertEqual(
-            check_readme.table_inputs(README, "baseline.yml inputs"), {"languages", "baseline-ref"}
+            check_readme.table_inputs(README, "baseline.yml inputs"), {"languages", "solution"}
         )
 
     def test_missing_heading_is_an_error(self):
@@ -106,6 +110,9 @@ class MainTest(unittest.TestCase):
             "coverage-gate inputs": "actions/coverage-gate/action.yml",
         }
         self.addCleanup(setattr, check_readme, "TABLES", saved)
+        saved_none = check_readme.NO_INPUTS
+        check_readme.NO_INPUTS = (".github/workflows/history-scan.yml",)
+        self.addCleanup(setattr, check_readme, "NO_INPUTS", saved_none)
 
     def run_main(self, **kwargs):
         with tempfile.TemporaryDirectory() as root:
@@ -162,6 +169,18 @@ class MainTest(unittest.TestCase):
     def test_referenced_anchor_that_exists_passes(self):
         rc, out = self.run_main(extra_ref="# see https://github.com/MarcelRoozekrans/ci-baseline#nugetauditsuppress\n")
         self.assertEqual(rc, 0, out)
+
+    def test_workflow_without_inputs_passes(self):
+        rc, out = self.run_main(history=HISTORY.replace("    secrets:", "    inputs: {}\n    secrets:"))
+        self.assertEqual(rc, 0, out)
+
+    def test_input_on_a_workflow_documented_without_inputs(self):
+        rc, out = self.run_main(
+            history=HISTORY.replace("    secrets:", "    inputs:\n      baseline-ref:\n        default: v1\n    secrets:")
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("history-scan.yml", out)
+        self.assertIn("baseline-ref", out)
 
     def test_required_anchor_missing(self):
         rc, out = self.run_main(readme=README.replace("## NuGetAuditSuppress", "## Something else"))

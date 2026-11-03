@@ -4,6 +4,7 @@
 Checks:
 - each inputs table lists exactly the `inputs:` keys of its workflow or action, with the same defaults
   (`true`, `empty` for an empty string or none, `required`, or the value);
+- each workflow in NO_INPUTS, which the README documents as taking no inputs, has none;
 - the fenced codecov.yml block equals fixtures/dotnet-clean/codecov.yml, byte for byte;
 - every ci-baseline#anchor that a workflow or action links to is a heading in the README,
   and the anchors in REQUIRED_ANCHORS exist.
@@ -18,10 +19,11 @@ import yaml
 # README heading -> file whose inputs the table under that heading documents.
 TABLES = {
     "baseline.yml inputs": ".github/workflows/baseline.yml",
-    "history-scan.yml inputs": ".github/workflows/history-scan.yml",
     "coverage-gate inputs": "actions/coverage-gate/action.yml",
     "sbom inputs": "actions/sbom/action.yml",
 }
+# Workflows the README documents as taking no inputs.
+NO_INPUTS = (".github/workflows/history-scan.yml",)
 CODECOV_FIXTURE = "fixtures/dotnet-clean/codecov.yml"
 # nuget-audit's guard message names the NuGetAuditSuppress section; baseline.yml links to the other.
 REQUIRED_ANCHORS = ("nugetauditsuppress", "codeql-upload-refused")
@@ -147,6 +149,9 @@ def problems(root):
                     "%s: input %r has default %r, but README table %r says %r"
                     % (rel, name, actual_defaults[name], heading, documented_defaults[name])
                 )
+    for rel in NO_INPUTS:
+        for name in sorted(yaml_inputs(os.path.join(root, rel))):
+            bad.append("%s: input %r is not in the README, which says the workflow takes no inputs" % (rel, name))
     try:
         with open(os.path.join(root, CODECOV_FIXTURE)) as handle:
             fixture = handle.read()

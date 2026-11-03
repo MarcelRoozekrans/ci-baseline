@@ -39,10 +39,6 @@ on:
         description: Container image that Trivy also scans. Empty means no image scan.
         type: string
         default: ""
-      baseline-ref:
-        description: Ref of MarcelRoozekrans/ci-baseline that supplies the internal actions.
-        type: string
-        default: v1
 
 permissions:
   contents: read
@@ -55,10 +51,22 @@ jobs:
       languages: ${{ steps.split.outputs.languages }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: MarcelRoozekrans/ci-baseline
-          ref: ${{ inputs.baseline-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
       - name: Split languages
@@ -78,10 +86,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: MarcelRoozekrans/ci-baseline
-          ref: ${{ inputs.baseline-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
       - name: Check the pull request commits
@@ -169,11 +189,24 @@ jobs:
           echo "NuGetAudit disabled by caller input: not a .NET repo" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.dotnet
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        if: inputs.dotnet
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.dotnet
         with:
-          repository: MarcelRoozekrans/ci-baseline
-          ref: ${{ inputs.baseline-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
@@ -196,11 +229,24 @@ jobs:
         run: echo "Trivy disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.trivy
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        if: inputs.trivy
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: inputs.trivy
         with:
-          repository: MarcelRoozekrans/ci-baseline
-          ref: ${{ inputs.baseline-ref }}
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
       - uses: ./.ci-baseline/actions/trivy
