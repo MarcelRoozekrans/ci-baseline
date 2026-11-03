@@ -21,9 +21,12 @@ jobs:
         run: lib/install-pinned.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint"
       - name: actionlint
         run: actionlint .github/workflows/*.yml
+      # The later checks still run when actionlint fails, so one red step hides nothing.
       - name: Check the README against the YAML
+        if: ${{ !cancelled() }}
         run: python3 lib/check_readme.py
       - name: Check action metadata
+        if: ${{ !cancelled() }}
         run: |
           python3 - <<'PY'
           import glob, sys, yaml
@@ -43,13 +46,14 @@ jobs:
           PY
       - name: installer-rejects-bad-checksum
         id: badsum
+        if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           GITHUB_PATH: ${{ runner.temp }}/badsum-path
         shell: bash
         run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum" 2>&1 | tee "$RUNNER_TEMP/badsum.log"
       - name: Fail unless the installer rejected the bad checksum
-        if: always() && steps.badsum.outcome != 'skipped'
+        if: ${{ !cancelled() && steps.badsum.outcome != 'skipped' }}
         shell: bash
         run: |
           if [ "${{ steps.badsum.outcome }}" != "failure" ] || ! grep -q 'checksum mismatch' "$RUNNER_TEMP/badsum.log"; then
