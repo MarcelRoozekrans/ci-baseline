@@ -27,6 +27,10 @@ runs:
         UPLOAD: ${{ inputs.upload }}
         TAG: ${{ inputs.tag }}
       run: |
+        if [ "$UPLOAD" != "true" ] && [ "$UPLOAD" != "false" ]; then
+          echo "::error::upload must be exactly true or false, got '$UPLOAD'"
+          exit 1
+        fi
         if [ "$UPLOAD" = "true" ] && [ -z "$TAG" ]; then
           echo "::error::upload is true but tag is empty; pass the release tag or set upload to false"
           exit 1
@@ -44,7 +48,8 @@ runs:
         set -euo pipefail
         name="$OUTPUT_NAME"
         if [ -z "$name" ]; then
-          if [ -n "$TAG" ]; then name="$REPO_NAME-$TAG.cdx.json"; else name="$REPO_NAME.cdx.json"; fi
+          # A tag such as release/x would otherwise make the name a path.
+          if [ -n "$TAG" ]; then name="$REPO_NAME-${TAG//\//-}.cdx.json"; else name="$REPO_NAME.cdx.json"; fi
         fi
         case "$name" in
           */* | *\\*) echo "::error::output-name must be a file name without a directory: '$name'"; exit 1 ;;
@@ -73,9 +78,14 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         SBOM_PATH: ${{ steps.generate.outputs.path }}
       run: |
         gh release upload "$TAG" "$SBOM_PATH" --clobber \
           || { echo "::error::could not attach the SBOM to release $TAG; the job needs permissions contents write and the release must exist"; exit 1; }
         echo "Attached to release \`$TAG\`." >> "$GITHUB_STEP_SUMMARY"
+    - name: Note that the SBOM was not attached
+      if: inputs.upload == 'false'
+      shell: bash
+      run: echo "Not attached to a release because upload is false." >> "$GITHUB_STEP_SUMMARY"

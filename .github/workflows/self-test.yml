@@ -344,6 +344,21 @@ jobs:
         with:
           solution: fixtures/dotnet-clean/DotnetClean.slnx
           upload: "true"
+      - name: upload-bad-value
+        id: badupload
+        continue-on-error: true
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          tag: v0.0.0-selftest
+          upload: yes
+      - name: slash-tag
+        id: slash
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          tag: release/x
+          upload: "false"
       - name: Assert SBOM contents
         if: always()
         shell: bash
@@ -352,20 +367,29 @@ jobs:
           CLEAN_PATH: ${{ steps.clean.outputs.path }}
           NOTAG: ${{ steps.notag.outcome }}
           NOTAG_PATH: ${{ steps.notag.outputs.path }}
+          BADUPLOAD: ${{ steps.badupload.outcome }}
+          BADUPLOAD_PATH: ${{ steps.badupload.outputs.path }}
+          SLASH_PATH: ${{ steps.slash.outputs.path }}
         run: |
           fail=0
           err() { echo "::error::$1"; fail=1; }
           [ "$NOTAG" = failure ] || err "upload without tag outcome was $NOTAG, expected failure"
           [ -z "$NOTAG_PATH" ] || err "upload without tag generated '$NOTAG_PATH', expected nothing"
+          [ "$BADUPLOAD" = failure ] || err "upload yes outcome was $BADUPLOAD, expected failure"
+          [ -z "$BADUPLOAD_PATH" ] || err "upload yes generated '$BADUPLOAD_PATH', expected nothing"
+          [ "$(basename "$SLASH_PATH")" = "ci-baseline-release-x.cdx.json" ] || err "slash tag file name is '$SLASH_PATH'"
           [ "$(basename "$VULNERABLE_PATH")" = "ci-baseline-v0.0.0-selftest.cdx.json" ] || err "vulnerable file name is '$VULNERABLE_PATH'"
           [ "$(basename "$CLEAN_PATH")" = "ci-baseline.cdx.json" ] || err "clean file name is '$CLEAN_PATH'"
           for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
             "$RUNNER_TEMP/cyclonedx-cli/cyclonedx-linux-x64" validate --input-file "$f" --input-format json --fail-on-errors || err "$f is not a valid CycloneDX document"
           done
+          # An empty or foreign document must not pass: the SBOM has to describe the solution.
+          [ "$(jq -r '.metadata.component.name' "$VULNERABLE_PATH")" = DotnetVulnerable ] || err "vulnerable SBOM does not describe DotnetVulnerable"
+          [ "$(jq -r '.metadata.component.name' "$CLEAN_PATH")" = DotnetClean ] || err "clean SBOM does not describe DotnetClean"
           # Newtonsoft.Json is only a transitive dependency of the fixture.
           jq -e '[.components[].name] | index("Newtonsoft.Json")' "$VULNERABLE_PATH" > /dev/null || err "transitive Newtonsoft.Json missing from the SBOM"
           # dotnet-clean has a test project; its packages and the project itself must not appear.
-          bad='^(xunit($|\..*)|Microsoft\.NET\.Test\.Sdk|coverlet\.collector|.*\.Tests)$'
+          bad='^(xunit($|\..*)|Microsoft\.NET\.Test\.Sdk|coverlet\.collector)$|Tests'
           for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
             hits=$(jq -r --arg re "$bad" '[.components[]?.name, .metadata.component.name] | map(select(. != null and test($re))) | .[]' "$f")
             [ -z "$hits" ] || err "$f contains test components: $hits"
