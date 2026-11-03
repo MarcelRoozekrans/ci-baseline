@@ -12,8 +12,8 @@ inputs:
     default: "."
 outputs:
   guard-result:
-    description: "clean when no audit code is muted, violations when the NoWarn guard failed the run."
-    value: ${{ steps.guard.outputs.guard-result }}
+    description: "clean when no audit code is muted, violations when the NoWarn guard failed the run, error when the solution or a project could not be read."
+    value: ${{ steps.resolve.outputs.guard-result || steps.guard.outputs.guard-result }}
   advisory-codes:
     description: "Semicolon separated NU190x codes found in the restore log. Empty when none were found or restore did not run."
     value: ${{ steps.summary.outputs.advisory-codes }}
@@ -30,9 +30,18 @@ runs:
         LIB: ${{ github.action_path }}/../../lib/baseline_lib.py
       run: |
         set -euo pipefail
-        # The CLI prints its own ::error:: line on failure.
-        if ! sln=$(python3 "$LIB" resolve-solution --root . --solution "$SOLUTION"); then echo "$sln"; exit 1; fi
-        if ! codes=$(python3 "$LIB" failing-codes --level "$LEVEL"); then echo "$codes"; exit 1; fi
+        fail_error() { # message
+          echo "guard-result=error" >> "$GITHUB_OUTPUT"
+          echo "guard: error, $1" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::$1"
+          exit 1
+        }
+        # The CLI prints a single ::error:: line on failure; pass its text on.
+        if ! sln=$(python3 "$LIB" resolve-solution --root . --solution "$SOLUTION"); then fail_error "${sln#::error::}"; fi
+        if ! codes=$(python3 "$LIB" failing-codes --level "$LEVEL"); then fail_error "${codes#::error::}"; fi
+        if [ "$LEVEL" != moderate ]; then
+          echo "nuget-audit-level: $LEVEL, not the default moderate. Failing codes: $codes" >> "$GITHUB_STEP_SUMMARY"
+        fi
         echo "sln=$sln" >> "$GITHUB_OUTPUT"
         echo "codes=$codes" >> "$GITHUB_OUTPUT"
         # Per-invocation log directory, so one run never reads another run's log.
@@ -47,43 +56,55 @@ runs:
         LIB: ${{ github.action_path }}/../../lib/baseline_lib.py
       run: |
         set -euo pipefail
+        fail_error() { # message
+          echo "guard-result=error" >> "$GITHUB_OUTPUT"
+          echo "guard: error, $1" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::$1"
+          exit 1
+        }
         evals=$(mktemp "$RUNNER_TEMP/nuget-audit-evals.XXXXXX")
         sln_dir=$(dirname "$SLN")
         if ! projects=$(dotnet sln "$SLN" list); then
-          echo "guard-result=error" >> "$GITHUB_OUTPUT"
-          echo "guard: error, dotnet sln list failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::dotnet sln list failed for $SLN"
-          exit 1
+          echo "$projects"
+          fail_error "dotnet sln list failed for $SLN"
         fi
+        # Called as `query ... || fail_error`, which turns off -e inside it, so each failure returns by hand.
         query() { # project tfm [extra msbuild args]
-          dotnet msbuild "$1" -getProperty:NoWarn -getProperty:WarningsNotAsErrors -getItem:PackageReference "${@:3}" \
-            | jq -c --arg project "$1" --arg tfm "$2" '. + {project: $project, tfm: $tfm}' >> "$evals"
+          local out
+          out=$(dotnet msbuild "$1" -getProperty:NoWarn -getProperty:WarningsNotAsErrors -getItem:PackageReference "${@:3}") \
+            || { echo "$out"; return 1; }
+          jq -c --arg project "$1" --arg tfm "$2" '. + {project: $project, tfm: $tfm}' <<< "$out" >> "$evals"
         }
         while IFS= read -r rel; do
           [ -n "$rel" ] || continue
           proj="$sln_dir/${rel//\\//}"
-          outer=$(dotnet msbuild "$proj" -getProperty:TargetFrameworks -getProperty:TargetFramework)
+          if ! outer=$(dotnet msbuild "$proj" -getProperty:TargetFrameworks -getProperty:TargetFramework); then
+            echo "$outer"
+            fail_error "dotnet msbuild could not evaluate $proj"
+          fi
           # TargetFrameworks may span several lines, so drop all whitespace first.
-          tfms=$(jq -r '.Properties.TargetFrameworks' <<< "$outer" | tr -d '[:space:]')
-          [ -n "$tfms" ] || tfms=$(jq -r '.Properties.TargetFramework' <<< "$outer" | tr -d '[:space:]')
+          if ! tfms=$(jq -r '.Properties.TargetFrameworks // ""' <<< "$outer" | tr -d '[:space:]'); then
+            fail_error "could not read TargetFrameworks of $proj from the msbuild output"
+          fi
+          if [ -z "$tfms" ] && ! tfms=$(jq -r '.Properties.TargetFramework // ""' <<< "$outer" | tr -d '[:space:]'); then
+            fail_error "could not read TargetFramework of $proj from the msbuild output"
+          fi
           if [ -z "$tfms" ]; then
             # No target framework at all: still evaluate the project once.
-            query "$proj" "(none)"
+            query "$proj" "(none)" || fail_error "could not evaluate NoWarn of $proj"
             continue
           fi
           IFS=';' read -r -a list <<< "$tfms"
           for tfm in "${list[@]}"; do
             [ -n "$tfm" ] || continue
-            query "$proj" "$tfm" "-p:TargetFramework=$tfm"
+            query "$proj" "$tfm" "-p:TargetFramework=$tfm" || fail_error "could not evaluate NoWarn of $proj for $tfm"
           done
         done <<< "$(tail -n +3 <<< "$projects")"
         status=0
         violations=$(jq -s . "$evals" | python3 "$LIB" nowarn-check --codes "$CODES") || status=$?
         if [ "$status" -eq 2 ]; then
-          echo "guard-result=error" >> "$GITHUB_OUTPUT"
-          echo "guard: error, could not evaluate projects" >> "$GITHUB_STEP_SUMMARY"
-          echo "$violations"
-          exit 1
+          # The CLI prints a single ::error:: line; pass its text on.
+          fail_error "could not check the evaluated projects: ${violations#::error::}"
         fi
         if [ "$status" -ne 0 ]; then
           echo "guard-result=violations" >> "$GITHUB_OUTPUT"
