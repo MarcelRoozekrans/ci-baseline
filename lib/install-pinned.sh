@@ -2,6 +2,7 @@
 # Usage: install-pinned.sh <url> <sha256> <dest-dir>
 # Downloads <url>, verifies its SHA-256, installs into <dest-dir> and appends
 # <dest-dir> to $GITHUB_PATH. Handles .tar.gz, .zip and bare binaries.
+# Archives keep their own file modes; only a bare binary is chmod +x.
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
@@ -28,8 +29,11 @@ mkdir -p "$dest"
 case "$url" in
   *.tar.gz | *.tgz) tar -xzf "$file" -C "$dest" ;;
   *.zip) unzip -q -o "$file" -d "$dest" ;;
-  *) cp "$file" "$dest/$(basename "${url%%\?*}")" ;;
+  *)
+    bin="$dest/$(basename "${url%%\?*}")"
+    cp "$file" "$bin"
+    chmod +x "$bin"
+    ;;
 esac
-chmod -R +x "$dest" 2>/dev/null || true
 
 echo "$dest" >> "${GITHUB_PATH:?GITHUB_PATH must be set}"

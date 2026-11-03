@@ -13,7 +13,6 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     env:
-      ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
       ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
     steps:
@@ -45,10 +44,16 @@ jobs:
         continue-on-error: true
         env:
           GITHUB_PATH: ${{ runner.temp }}/badsum-path
-        run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum"
-      - name: Fail if the installer accepted a bad checksum
-        if: steps.badsum.outcome != 'failure'
-        run: exit 1
+        shell: bash
+        run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum" 2>&1 | tee "$RUNNER_TEMP/badsum.log"
+      - name: Fail unless the installer rejected the bad checksum
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.badsum.outcome }}" != "failure" ] || ! grep -q 'checksum mismatch' "$RUNNER_TEMP/badsum.log"; then
+            echo "installer did not fail with a checksum mismatch"
+            exit 1
+          fi
 
   unit:
     runs-on: ubuntu-latest
