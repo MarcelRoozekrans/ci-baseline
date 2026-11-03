@@ -46,7 +46,12 @@ coverage:
 ```
 """
 
-BASELINE = "on:\n  workflow_call:\n    inputs:\n      languages: {}\n      baseline-ref: {}\njobs: {}\n"
+BASELINE = (
+    "on:\n  workflow_call:\n    inputs:\n"
+    "      languages:\n        default: csharp\n"
+    "      baseline-ref:\n        default: v1\n"
+    "jobs: {}\n"
+)
 GATE = "name: g\ninputs:\n  floor:\n    default: '80'\nruns:\n  using: composite\n  steps: []\n"
 
 
@@ -116,7 +121,7 @@ class MainTest(unittest.TestCase):
 
     def test_input_missing_from_table(self):
         rc, out = self.run_main(
-            baseline="on:\n  workflow_call:\n    inputs:\n      languages: {}\n      baseline-ref: {}\n      extra: {}\njobs: {}\n"
+            baseline=BASELINE.replace("jobs: {}", "      extra: {}\njobs: {}")
         )
         self.assertEqual(rc, 1)
         self.assertIn("extra", out)
@@ -127,6 +132,22 @@ class MainTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("floor", out)
         self.assertIn("not an input", out)
+
+    def test_default_drift(self):
+        rc, out = self.run_main(baseline=BASELINE.replace("default: csharp", "default: python"))
+        self.assertEqual(rc, 1)
+        self.assertIn("languages", out)
+        self.assertIn("default", out)
+
+    def test_boolean_empty_and_required_defaults(self):
+        table = "| `a` | `true` | x |\n| `b` | empty | x |\n| `c` | required | x |\n"
+        yml = "inputs:\n  a:\n    default: true\n  b:\n    default: ''\n  c:\n    required: true\n"
+        self.assertEqual(check_readme.table_defaults("### t\n\n" + table, "t"), {"a": "true", "b": "empty", "c": "required"})
+        with tempfile.TemporaryDirectory() as root:
+            path = os.path.join(root, "a.yml")
+            with open(path, "w") as f:
+                f.write(yml)
+            self.assertEqual(check_readme.yaml_defaults(path), {"a": "true", "b": "empty", "c": "required"})
 
     def test_codecov_drift(self):
         rc, out = self.run_main(codecov=CODECOV + "        threshold: 1%\n")
