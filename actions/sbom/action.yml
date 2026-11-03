@@ -1,0 +1,81 @@
+name: sbom
+description: Generate a CycloneDX JSON SBOM, transitive packages included and test projects left out, and optionally attach it to a GitHub release. Put it in your release job after the release build; the caller sets up the .NET SDK. Attaching needs a token that can write release assets, so give that job permissions contents write.
+inputs:
+  solution:
+    description: Path to the .sln, .slnx or project file to describe. Restored first.
+    required: true
+  tag:
+    description: Release tag the SBOM belongs to and is attached to. Required when upload is true.
+    default: ""
+  output-name:
+    description: File name of the SBOM. Empty means <repo>-<tag>.cdx.json, or <repo>.cdx.json without a tag.
+    default: ""
+  upload:
+    description: Attach the SBOM to the release named by tag with gh release upload --clobber. Needs contents write permission on the calling job, and fails without a tag.
+    default: "true"
+outputs:
+  path:
+    description: Path of the generated SBOM file.
+    value: ${{ steps.generate.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - name: Check inputs
+      id: check
+      shell: bash
+      env:
+        UPLOAD: ${{ inputs.upload }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        if [ "$UPLOAD" = "true" ] && [ -z "$TAG" ]; then
+          echo "::error::upload is true but tag is empty; pass the release tag or set upload to false"
+          exit 1
+        fi
+    - name: Generate SBOM
+      id: generate
+      shell: bash
+      env:
+        SOLUTION: ${{ inputs.solution }}
+        TAG: ${{ inputs.tag }}
+        OUTPUT_NAME: ${{ inputs.output-name }}
+        REPO_NAME: ${{ github.event.repository.name }}
+        CYCLONEDX_VERSION: 6.3.1
+      run: |
+        set -euo pipefail
+        name="$OUTPUT_NAME"
+        if [ -z "$name" ]; then
+          if [ -n "$TAG" ]; then name="$REPO_NAME-$TAG.cdx.json"; else name="$REPO_NAME.cdx.json"; fi
+        fi
+        case "$name" in
+          */* | *\\*) echo "::error::output-name must be a file name without a directory: '$name'"; exit 1 ;;
+        esac
+        dotnet restore "$SOLUTION" || { echo "::error::dotnet restore failed for $SOLUTION"; exit 1; }
+        cdx="$RUNNER_TEMP/cdx"
+        if [ ! -x "$cdx/dotnet-CycloneDX" ]; then
+          dotnet tool install --tool-path "$cdx" --version "$CYCLONEDX_VERSION" CycloneDX \
+            || { echo "::error::could not install CycloneDX $CYCLONEDX_VERSION"; exit 1; }
+        fi
+        out="$RUNNER_TEMP/sbom"
+        mkdir -p "$out"
+        # --exclude-test-projects: test packages are not shipped. --disable-package-restore:
+        # restored above. Transitive packages are included by default.
+        "$cdx/dotnet-CycloneDX" "$SOLUTION" --output-format Json --output "$out" --filename "$name" \
+          --exclude-test-projects --disable-package-restore \
+          || { echo "::error::CycloneDX failed to generate the SBOM"; exit 1; }
+        [ -s "$out/$name" ] || { echo "::error::CycloneDX wrote no SBOM at $out/$name"; exit 1; }
+        echo "path=$out/$name" >> "$GITHUB_OUTPUT"
+        {
+          echo "### SBOM"
+          echo "Wrote \`$name\` (CycloneDX $CYCLONEDX_VERSION tool, test projects excluded)."
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Attach SBOM to the release
+      if: inputs.upload == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag }}
+        SBOM_PATH: ${{ steps.generate.outputs.path }}
+      run: |
+        gh release upload "$TAG" "$SBOM_PATH" --clobber \
+          || { echo "::error::could not attach the SBOM to release $TAG; the job needs permissions contents write and the release must exist"; exit 1; }
+        echo "Attached to release \`$TAG\`." >> "$GITHUB_STEP_SUMMARY"

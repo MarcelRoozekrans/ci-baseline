@@ -308,3 +308,66 @@ jobs:
           expect "no-reports outcome" "$NOREPORTS" failure
           expect "no-reports result" "$NOREPORTS_RESULT" no-reports
           exit "$fail"
+
+  sbom:
+    runs-on: ubuntu-latest
+    env:
+      CYCLONEDX_CLI_URL: https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64
+      # The release publishes no checksums file; this is the SHA-256 of the v0.33.1 asset.
+      CYCLONEDX_CLI_SHA256: bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: Install cyclonedx-cli
+        run: lib/install-pinned.sh "$CYCLONEDX_CLI_URL" "$CYCLONEDX_CLI_SHA256" "$RUNNER_TEMP/cyclonedx-cli"
+      - name: vulnerable
+        id: vulnerable
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-vulnerable/DotnetVulnerable.slnx
+          tag: v0.0.0-selftest
+          upload: "false"
+      - name: clean
+        id: clean
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          upload: "false"
+      - name: upload-without-tag
+        id: notag
+        continue-on-error: true
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          upload: "true"
+      - name: Assert SBOM contents
+        if: always()
+        shell: bash
+        env:
+          VULNERABLE_PATH: ${{ steps.vulnerable.outputs.path }}
+          CLEAN_PATH: ${{ steps.clean.outputs.path }}
+          NOTAG: ${{ steps.notag.outcome }}
+          NOTAG_PATH: ${{ steps.notag.outputs.path }}
+        run: |
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+          [ "$NOTAG" = failure ] || err "upload without tag outcome was $NOTAG, expected failure"
+          [ -z "$NOTAG_PATH" ] || err "upload without tag generated '$NOTAG_PATH', expected nothing"
+          [ "$(basename "$VULNERABLE_PATH")" = "ci-baseline-v0.0.0-selftest.cdx.json" ] || err "vulnerable file name is '$VULNERABLE_PATH'"
+          [ "$(basename "$CLEAN_PATH")" = "ci-baseline.cdx.json" ] || err "clean file name is '$CLEAN_PATH'"
+          for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
+            "$RUNNER_TEMP/cyclonedx-cli/cyclonedx-linux-x64" validate --input-file "$f" --input-format json --fail-on-errors || err "$f is not a valid CycloneDX document"
+          done
+          # Newtonsoft.Json is only a transitive dependency of the fixture.
+          jq -e '[.components[].name] | index("Newtonsoft.Json")' "$VULNERABLE_PATH" > /dev/null || err "transitive Newtonsoft.Json missing from the SBOM"
+          # dotnet-clean has a test project; its packages and the project itself must not appear.
+          bad='^(xunit($|\..*)|Microsoft\.NET\.Test\.Sdk|coverlet\.collector|.*\.Tests)$'
+          for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
+            hits=$(jq -r --arg re "$bad" '[.components[]?.name, .metadata.component.name] | map(select(. != null and test($re))) | .[]' "$f")
+            [ -z "$hits" ] || err "$f contains test components: $hits"
+          done
+          exit "$fail"
