@@ -1,0 +1,12 @@
+# actionlint 1.7.12 does not know the documented job.workflow_repository and
+# job.workflow_sha context properties, which baseline.yml and history-scan.yml
+# use to check out their internal actions. Upstream fix: rhysd/actionlint#707.
+# Tracked in issue #3 of this repo. Delete this file when an actionlint release
+# that includes #707 is pinned in self-test.yml.
+paths:
+  .github/workflows/baseline.yml:
+    ignore:
+      - '^property "workflow_(sha|repository)" is not defined in object type \{'
+  .github/workflows/history-scan.yml:
+    ignore:
+      - '^property "workflow_(sha|repository)" is not defined in object type \{'
