@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="src/Clean/Clean.csproj" />
+  <Project Path="tests/Clean.Tests/Clean.Tests.csproj" />
 </Solution>

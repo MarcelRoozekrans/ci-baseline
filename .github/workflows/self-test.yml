@@ -216,3 +216,82 @@ jobs:
           [ "$MISCONFIG_RESULT" = findings ] || { echo "::error::misconfig result was '$MISCONFIG_RESULT', expected findings"; exit 1; }
           [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }
           [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }
+
+  coverage-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: Test fixtures with coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test fixtures/dotnet-clean --collect:"XPlat Code Coverage"
+          dotnet test fixtures/dotnet-lowcov --collect:"XPlat Code Coverage"
+      - name: clean
+        id: clean
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+      - name: lowcov
+        id: lowcov
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+      - name: lowcov-floor-40-no-reason
+        id: noreason
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+          floor: "40"
+      - name: lowcov-floor-40-with-reason
+        id: withreason
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+          floor: "40"
+          floor-override-reason: Self-test fixture with deliberately low coverage
+      - name: no-reports
+        id: noreports
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+          reports: nothing/**/*.xml
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          CLEAN_RESULT: ${{ steps.clean.outputs.result }}
+          LOWCOV: ${{ steps.lowcov.outcome }}
+          LOWCOV_RESULT: ${{ steps.lowcov.outputs.result }}
+          NOREASON: ${{ steps.noreason.outcome }}
+          NOREASON_RESULT: ${{ steps.noreason.outputs.result }}
+          WITHREASON: ${{ steps.withreason.outcome }}
+          WITHREASON_RESULT: ${{ steps.withreason.outputs.result }}
+          NOREPORTS: ${{ steps.noreports.outcome }}
+          NOREPORTS_RESULT: ${{ steps.noreports.outputs.result }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean outcome" "$CLEAN" success
+          expect "clean result" "$CLEAN_RESULT" pass
+          # Each failing run must fail for the intended reason, read from the result output.
+          expect "lowcov outcome" "$LOWCOV" failure
+          expect "lowcov result" "$LOWCOV_RESULT" below-floor
+          expect "floor 40 without reason outcome" "$NOREASON" failure
+          expect "floor 40 without reason result" "$NOREASON_RESULT" invalid-floor
+          expect "floor 40 with reason outcome" "$WITHREASON" success
+          expect "floor 40 with reason result" "$WITHREASON_RESULT" pass
+          expect "no-reports outcome" "$NOREPORTS" failure
+          expect "no-reports result" "$NOREPORTS_RESULT" no-reports
+          exit "$fail"

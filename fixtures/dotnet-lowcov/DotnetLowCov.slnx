@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/LowCov/LowCov.csproj" />
+  <Project Path="tests/LowCov.Tests/LowCov.Tests.csproj" />
+</Solution>
