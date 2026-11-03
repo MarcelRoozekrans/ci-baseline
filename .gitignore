@@ -1,0 +1,6 @@
+bin/
+obj/
+TestResults/
+*.cdx.json
+.ci-baseline/
+__pycache__/

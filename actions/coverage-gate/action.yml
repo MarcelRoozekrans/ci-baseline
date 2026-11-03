@@ -1,0 +1,142 @@
+name: coverage-gate
+description: Fail the run when merged line coverage is below the floor, or when codecov.yml does not enforce the project status. Put it right after your dotnet test step that collects XPlat Code Coverage. Linux runners only in v1. Assemblies matching *Tests*, *Benchmarks*, *Samples* or *AotSmoke* and files under tests, benchmarks, samples or obj and *.g.cs files are left out of the measurement.
+inputs:
+  reports:
+    description: One or more space-separated globs of Cobertura reports, relative to working-directory. Several reports are merged. A glob that matches no existing file fails the run.
+    default: "**/coverage.cobertura.xml"
+  floor:
+    description: Minimum line coverage in percent. A value below 80 needs floor-override-reason.
+    default: "80"
+  floor-override-reason:
+    description: Why the floor is below 80. Written to the step summary.
+    default: ""
+  max-drop:
+    description: Largest threshold in percentage points that codecov.yml may allow for the project status.
+    default: "1"
+  working-directory:
+    description: Directory the codecov.yml is looked up in and the reports glob is expanded in.
+    default: "."
+outputs:
+  result:
+    description: "pass, below-floor, no-reports, policy, invalid-floor, unsupported-os or error. Set before the step fails, so callers can tell why it failed."
+    value: ${{ steps.os.outputs.result || steps.floor.outputs.result || steps.policy.outputs.result || steps.gate.outputs.result }}
+  floor-override-reason:
+    description: The trimmed floor-override-reason that was given. Empty when none.
+    value: ${{ steps.floor.outputs.floor-override-reason }}
+runs:
+  using: composite
+  steps:
+    - name: Require a Linux runner
+      id: os
+      shell: bash
+      env:
+        RUNNER_OS_NAME: ${{ runner.os }}
+      run: |
+        if [ "$RUNNER_OS_NAME" != "Linux" ]; then
+          echo "result=unsupported-os" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Coverage gate"
+            echo "Not run: coverage-gate supports Linux runners only in v1, and this runner is $RUNNER_OS_NAME. Run it in a Linux job."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::coverage-gate supports Linux runners in v1; run it in a Linux job"
+          exit 1
+        fi
+    - name: Validate floor
+      id: floor
+      shell: bash
+      env:
+        FLOOR: ${{ inputs.floor }}
+        REASON: ${{ inputs.floor-override-reason }}
+        LIB: ${{ github.action_path }}/../../lib/coverage_gate.py
+      run: |
+        # The CLI prints a single ::error:: line on failure.
+        if ! msg=$(python3 "$LIB" validate-floor "$FLOOR" "$REASON"); then
+          echo "result=invalid-floor" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Coverage gate"
+            echo "Invalid floor: ${msg#::error::}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg"
+          exit 1
+        fi
+        # The reason can span lines, so write it with a delimiter.
+        trimmed="${REASON#"${REASON%%[![:space:]]*}"}"
+        trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+        delimiter="REASON_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+        {
+          echo "floor-override-reason<<$delimiter"
+          printf '%s\n' "$trimmed"
+          echo "$delimiter"
+        } >> "$GITHUB_OUTPUT"
+    - name: Check codecov policy
+      id: policy
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        MAX_DROP: ${{ inputs.max-drop }}
+        LIB: ${{ github.action_path }}/../../lib/coverage_gate.py
+      run: |
+        if [ "$MAX_DROP" != 1 ]; then
+          echo "max-drop: $MAX_DROP percentage points, not the default 1." >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if ! python3 "$LIB" check-codecov . "$MAX_DROP"; then
+          echo "result=policy" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+    - name: Merge reports and check the floor
+      id: gate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        REPORTS: ${{ inputs.reports }}
+        FLOOR: ${{ inputs.floor }}
+        LIB: ${{ github.action_path }}/../../lib/coverage_gate.py
+        REPORTGENERATOR_VERSION: 5.5.12
+      run: |
+        set -euo pipefail
+        shopt -s globstar nullglob
+        # Space separated globs; read splits without expanding them.
+        read -r -a patterns <<< "$REPORTS"
+        files=()
+        for pattern in "${patterns[@]}"; do
+          # An unmatched literal path survives nullglob as one word, so keep existing files only.
+          found=0
+          # shellcheck disable=SC2206
+          matches=($pattern)
+          for match in "${matches[@]}"; do
+            if [ -f "$match" ]; then
+              files+=("$match")
+              found=1
+            fi
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "result=no-reports" >> "$GITHUB_OUTPUT"
+            echo "### Coverage gate" >> "$GITHUB_STEP_SUMMARY"
+            echo "No coverage reports matched '$pattern'." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::no coverage reports matched '$pattern'"
+            exit 1
+          fi
+        done
+        joined=$(IFS=';'; echo "${files[*]}")
+        rg="$RUNNER_TEMP/rg"
+        fail_error() {
+          echo "result=error" >> "$GITHUB_OUTPUT"
+          echo "::error::$1"
+          exit 1
+        }
+        if [ ! -x "$rg/reportgenerator" ]; then
+          dotnet tool install --tool-path "$rg" --version "$REPORTGENERATOR_VERSION" dotnet-reportgenerator-globaltool \
+            || fail_error "could not install ReportGenerator $REPORTGENERATOR_VERSION"
+        fi
+        out=$(mktemp -d "$RUNNER_TEMP/covsum.XXXXXX")
+        "$rg/reportgenerator" "-reports:$joined" "-targetdir:$out" "-reporttypes:JsonSummary" \
+          "-assemblyfilters:-*Tests*;-*Benchmarks*;-*Samples*;-*AotSmoke*" \
+          "-filefilters:-*/tests/*;-*/benchmarks/*;-*/samples/*;-*/obj/*;-*.g.cs" \
+          || fail_error "ReportGenerator failed to merge the coverage reports"
+        status=0
+        python3 "$LIB" check-floor "$out/Summary.json" "$FLOOR" || status=$?
+        case "$status" in
+          0) echo "result=pass" >> "$GITHUB_OUTPUT" ;;
+          1) echo "result=below-floor" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          *) echo "result=error" >> "$GITHUB_OUTPUT"; exit 1 ;;
+        esac

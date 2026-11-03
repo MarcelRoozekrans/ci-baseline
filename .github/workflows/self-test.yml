@@ -1,0 +1,511 @@
+name: self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install actionlint
+        run: lib/install-pinned.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint"
+      - name: actionlint
+        run: actionlint .github/workflows/*.yml
+      # The later checks still run when actionlint fails, so one red step hides nothing.
+      - name: Check the README against the YAML
+        if: ${{ !cancelled() }}
+        run: python3 lib/check_readme.py
+      - name: Check action metadata
+        if: ${{ !cancelled() }}
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = []
+          for path in sorted(glob.glob("actions/*/action.yml")):
+              with open(path) as f:
+                  doc = yaml.safe_load(f)
+              if not doc.get("name"):
+                  bad.append(f"{path}: missing name")
+              if not doc.get("description"):
+                  bad.append(f"{path}: missing description")
+              if (doc.get("runs") or {}).get("using") != "composite":
+                  bad.append(f"{path}: runs.using must be composite")
+          if bad:
+              print("\n".join(bad))
+              sys.exit(1)
+          PY
+      - name: installer-rejects-bad-checksum
+        id: badsum
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GITHUB_PATH: ${{ runner.temp }}/badsum-path
+        shell: bash
+        run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum" 2>&1 | tee "$RUNNER_TEMP/badsum.log"
+      - name: Fail unless the installer rejected the bad checksum
+        if: ${{ !cancelled() && steps.badsum.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          if [ "${{ steps.badsum.outcome }}" != "failure" ] || ! grep -q 'checksum mismatch' "$RUNNER_TEMP/badsum.log"; then
+            echo "installer did not fail with a checksum mismatch"
+            exit 1
+          fi
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t .
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build throwaway repo with a runtime-generated leak
+        id: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/leakrepo"
+          git init -q "$repo"
+          cd "$repo"
+          g() { git -c user.name=selftest -c user.email=selftest@example.com "$@"; }
+          echo clean > a.txt
+          g add . && g commit -q -m "A clean"
+          echo "a=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "token=ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)" > token.txt
+          g add . && g commit -q -m "B leak"
+          echo "b=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo clean2 > c.txt
+          g add . && g commit -q -m "C clean"
+          echo "c=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+      - name: range-with-leak
+        id: leak
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.a }}..${{ steps.repo.outputs.c }}
+      - name: range-without-leak
+        id: noleak
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.b }}..${{ steps.repo.outputs.c }}
+      - name: history
+        id: hist
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: history
+          source: ${{ steps.repo.outputs.repo }}
+      - name: Write a config that does not extend the default rules
+        id: cfg
+        shell: bash
+        run: |
+          printf '[[rules]]\nid = "only-this"\nregex = "only-this-[0-9]+"\n' > "$RUNNER_TEMP/no-extend.toml"
+          echo "path=$RUNNER_TEMP/no-extend.toml" >> "$GITHUB_OUTPUT"
+      - name: config-without-default-rules
+        id: noextend
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.b }}..${{ steps.repo.outputs.c }}
+          config: ${{ steps.cfg.outputs.path }}
+      - name: unknown-range
+        id: badrange
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: 0000000000000000000000000000000000000000..${{ steps.repo.outputs.c }}
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          LEAK: ${{ steps.leak.outcome }}
+          LEAK_RESULT: ${{ steps.leak.outputs.result }}
+          NOLEAK: ${{ steps.noleak.outcome }}
+          NOLEAK_RESULT: ${{ steps.noleak.outputs.result }}
+          HIST: ${{ steps.hist.outcome }}
+          HIST_RESULT: ${{ steps.hist.outputs.result }}
+          NOEXTEND: ${{ steps.noextend.outcome }}
+          NOEXTEND_RESULT: ${{ steps.noextend.outputs.result }}
+          BADRANGE: ${{ steps.badrange.outcome }}
+          BADRANGE_RESULT: ${{ steps.badrange.outputs.result }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "range-with-leak outcome" "$LEAK" failure
+          expect "range-with-leak result" "$LEAK_RESULT" findings
+          expect "range-without-leak outcome" "$NOLEAK" success
+          expect "range-without-leak result" "$NOLEAK_RESULT" clean
+          expect "history outcome" "$HIST" failure
+          expect "history result" "$HIST_RESULT" findings
+          # A config that would replace the default rules must be refused before gitleaks runs.
+          expect "config-without-default-rules outcome" "$NOEXTEND" failure
+          expect "config-without-default-rules result" "$NOEXTEND_RESULT" error
+          # A range git cannot resolve must be an error, not a clean scan.
+          expect "unknown-range outcome" "$BADRANGE" failure
+          expect "unknown-range result" "$BADRANGE_RESULT" error
+          exit "$fail"
+
+  history-clean:
+    uses: ./.github/workflows/history-scan.yml
+
+  baseline:
+    uses: ./.github/workflows/baseline.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      solution: fixtures/dotnet-clean/DotnetClean.slnx
+      trivy: true
+      trivy-path: fixtures/dotnet-clean
+
+  # Every optional check off: each job must still run, report and pass.
+  baseline-disabled:
+    uses: ./.github/workflows/baseline.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    with:
+      codeql: false
+      dotnet: false
+      trivy: false
+
+  baseline-disabled-result:
+    needs: baseline-disabled
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the disabled call passed
+        env:
+          RESULT: ${{ needs.baseline-disabled.result }}
+        run: |
+          [ "$RESULT" = success ] || { echo "::error::baseline-disabled result was '$RESULT', expected success"; exit 1; }
+
+  nuget-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: clean
+        id: clean
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-clean
+      - name: vulnerable
+        id: vulnerable
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-vulnerable
+      - name: nowarn
+        id: nowarn
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-nowarn
+      - name: nowarn-package
+        id: nowarnpkg
+        continue-on-error: true
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-nowarn-package
+      - name: low-only-warnings-as-errors
+        id: lowonly
+        uses: ./actions/nuget-audit
+        with:
+          working-directory: fixtures/dotnet-lowonly-twae
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          CLEAN_GUARD: ${{ steps.clean.outputs.guard-result }}
+          LOWONLY: ${{ steps.lowonly.outcome }}
+          LOWONLY_CODES: ${{ steps.lowonly.outputs.advisory-codes }}
+          VULNERABLE: ${{ steps.vulnerable.outcome }}
+          VULNERABLE_GUARD: ${{ steps.vulnerable.outputs.guard-result }}
+          VULNERABLE_CODES: ${{ steps.vulnerable.outputs.advisory-codes }}
+          NOWARN: ${{ steps.nowarn.outcome }}
+          NOWARN_GUARD: ${{ steps.nowarn.outputs.guard-result }}
+          NOWARNPKG: ${{ steps.nowarnpkg.outcome }}
+          NOWARNPKG_GUARD: ${{ steps.nowarnpkg.outputs.guard-result }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean outcome" "$CLEAN" success
+          expect "vulnerable outcome" "$VULNERABLE" failure
+          expect "nowarn outcome" "$NOWARN" failure
+          expect "nowarn-package outcome" "$NOWARNPKG" failure
+          # The vulnerable fixture must pass the guard and fail in restore. The
+          # nowarn fixtures must fail in the guard: a failure from the restore
+          # advisory would prove nothing about the guard.
+          expect "clean guard-result" "$CLEAN_GUARD" clean
+          expect "vulnerable guard-result" "$VULNERABLE_GUARD" clean
+          # Restore must fail because of the advisory, not for another reason.
+          expect "vulnerable advisory-codes" "$VULNERABLE_CODES" NU1903
+          expect "nowarn guard-result" "$NOWARN_GUARD" violations
+          expect "nowarn-package guard-result" "$NOWARNPKG_GUARD" violations
+          # TreatWarningsAsErrors=true in the project must not turn a low advisory
+          # into a failure at the default level; the advisory must still be reported.
+          expect "low-only outcome" "$LOWONLY" success
+          expect "low-only advisory-codes" "$LOWONLY_CODES" NU1901
+          exit "$fail"
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: clean
+        id: clean
+        uses: ./actions/trivy
+        with:
+          path: fixtures/dotnet-clean
+      - name: misconfig
+        id: misconfig
+        continue-on-error: true
+        uses: ./actions/trivy
+        with:
+          path: fixtures/iac-misconfig
+      - name: Stage a .ci-baseline directory with the misconfig fixture
+        run: |
+          mkdir -p "skipdirs/.ci-baseline"
+          cp -r fixtures/iac-misconfig "skipdirs/.ci-baseline/"
+      - name: skip-dirs
+        id: skipdirs
+        uses: ./actions/trivy
+        with:
+          path: skipdirs
+          skip-dirs: "**/.ci-baseline"
+      - name: no-skip-dirs
+        id: noskipdirs
+        continue-on-error: true
+        uses: ./actions/trivy
+        with:
+          path: skipdirs
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          SKIPDIRS_RESULT: ${{ steps.skipdirs.outputs.result }}
+          NOSKIPDIRS_RESULT: ${{ steps.noskipdirs.outputs.result }}
+          CLEAN: ${{ steps.clean.outcome }}
+          MISCONFIG: ${{ steps.misconfig.outcome }}
+          CLEAN_RESULT: ${{ steps.clean.outputs.result }}
+          MISCONFIG_RESULT: ${{ steps.misconfig.outputs.result }}
+        run: |
+          [ "$CLEAN_RESULT" = clean ] || { echo "::error::clean result was '$CLEAN_RESULT', expected clean"; exit 1; }
+          [ "$MISCONFIG_RESULT" = findings ] || { echo "::error::misconfig result was '$MISCONFIG_RESULT', expected findings"; exit 1; }
+          [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }
+          [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }
+          [ "$SKIPDIRS_RESULT" = clean ] || { echo "::error::skip-dirs result was '$SKIPDIRS_RESULT', expected clean"; exit 1; }
+          [ "$NOSKIPDIRS_RESULT" = findings ] || { echo "::error::no-skip-dirs result was '$NOSKIPDIRS_RESULT', expected findings"; exit 1; }
+
+  coverage-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: Test fixtures with coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test fixtures/dotnet-clean --collect:"XPlat Code Coverage"
+          dotnet test fixtures/dotnet-lowcov --collect:"XPlat Code Coverage"
+      - name: clean
+        id: clean
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+      - name: lowcov
+        id: lowcov
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+      - name: lowcov-floor-40-no-reason
+        id: noreason
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+          floor: "40"
+      - name: lowcov-floor-40-with-reason
+        id: withreason
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-lowcov
+          floor: "40"
+          floor-override-reason: Self-test fixture with deliberately low coverage
+      - name: no-reports
+        id: noreports
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+          reports: nothing/**/*.xml
+      - name: no-reports-literal-path
+        id: noreportsliteral
+        continue-on-error: true
+        uses: ./actions/coverage-gate
+        with:
+          working-directory: fixtures/dotnet-clean
+          reports: nothing/coverage.cobertura.xml
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          CLEAN_RESULT: ${{ steps.clean.outputs.result }}
+          LOWCOV: ${{ steps.lowcov.outcome }}
+          LOWCOV_RESULT: ${{ steps.lowcov.outputs.result }}
+          NOREASON: ${{ steps.noreason.outcome }}
+          NOREASON_RESULT: ${{ steps.noreason.outputs.result }}
+          WITHREASON: ${{ steps.withreason.outcome }}
+          WITHREASON_RESULT: ${{ steps.withreason.outputs.result }}
+          WITHREASON_REASON: ${{ steps.withreason.outputs.floor-override-reason }}
+          NOREPORTSLITERAL: ${{ steps.noreportsliteral.outcome }}
+          NOREPORTSLITERAL_RESULT: ${{ steps.noreportsliteral.outputs.result }}
+          NOREPORTS: ${{ steps.noreports.outcome }}
+          NOREPORTS_RESULT: ${{ steps.noreports.outputs.result }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean outcome" "$CLEAN" success
+          expect "clean result" "$CLEAN_RESULT" pass
+          # Each failing run must fail for the intended reason, read from the result output.
+          expect "lowcov outcome" "$LOWCOV" failure
+          expect "lowcov result" "$LOWCOV_RESULT" below-floor
+          expect "floor 40 without reason outcome" "$NOREASON" failure
+          expect "floor 40 without reason result" "$NOREASON_RESULT" invalid-floor
+          expect "floor 40 with reason outcome" "$WITHREASON" success
+          expect "floor 40 with reason result" "$WITHREASON_RESULT" pass
+          expect "floor 40 with reason output" "$WITHREASON_REASON" "Self-test fixture with deliberately low coverage"
+          expect "no-reports literal path outcome" "$NOREPORTSLITERAL" failure
+          expect "no-reports literal path result" "$NOREPORTSLITERAL_RESULT" no-reports
+          expect "no-reports outcome" "$NOREPORTS" failure
+          expect "no-reports result" "$NOREPORTS_RESULT" no-reports
+          exit "$fail"
+
+  sbom:
+    runs-on: ubuntu-latest
+    env:
+      CYCLONEDX_CLI_URL: https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64
+      # The release publishes no checksums file; this is the SHA-256 of the v0.33.1 asset.
+      CYCLONEDX_CLI_SHA256: bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: |
+            10.0.x
+            9.0.x
+      - name: Install cyclonedx-cli
+        run: lib/install-pinned.sh "$CYCLONEDX_CLI_URL" "$CYCLONEDX_CLI_SHA256" "$RUNNER_TEMP/cyclonedx-cli"
+      - name: vulnerable
+        id: vulnerable
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-vulnerable/DotnetVulnerable.slnx
+          tag: v0.0.0-selftest
+          upload: "false"
+      - name: clean
+        id: clean
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          upload: "false"
+      - name: upload-without-tag
+        id: notag
+        continue-on-error: true
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          upload: "true"
+      - name: upload-bad-value
+        id: badupload
+        continue-on-error: true
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          tag: v0.0.0-selftest
+          upload: yes
+      - name: slash-tag
+        id: slash
+        uses: ./actions/sbom
+        with:
+          solution: fixtures/dotnet-clean/DotnetClean.slnx
+          tag: release/x
+          upload: "false"
+      - name: Assert SBOM contents
+        if: always()
+        shell: bash
+        env:
+          VULNERABLE_PATH: ${{ steps.vulnerable.outputs.path }}
+          CLEAN_PATH: ${{ steps.clean.outputs.path }}
+          NOTAG: ${{ steps.notag.outcome }}
+          NOTAG_PATH: ${{ steps.notag.outputs.path }}
+          BADUPLOAD: ${{ steps.badupload.outcome }}
+          BADUPLOAD_PATH: ${{ steps.badupload.outputs.path }}
+          SLASH_PATH: ${{ steps.slash.outputs.path }}
+        run: |
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+          [ "$NOTAG" = failure ] || err "upload without tag outcome was $NOTAG, expected failure"
+          [ -z "$NOTAG_PATH" ] || err "upload without tag generated '$NOTAG_PATH', expected nothing"
+          [ "$BADUPLOAD" = failure ] || err "upload yes outcome was $BADUPLOAD, expected failure"
+          [ -z "$BADUPLOAD_PATH" ] || err "upload yes generated '$BADUPLOAD_PATH', expected nothing"
+          [ "$(basename "$SLASH_PATH")" = "ci-baseline-release-x.cdx.json" ] || err "slash tag file name is '$SLASH_PATH'"
+          [ "$(basename "$VULNERABLE_PATH")" = "ci-baseline-v0.0.0-selftest.cdx.json" ] || err "vulnerable file name is '$VULNERABLE_PATH'"
+          [ "$(basename "$CLEAN_PATH")" = "ci-baseline.cdx.json" ] || err "clean file name is '$CLEAN_PATH'"
+          for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
+            "$RUNNER_TEMP/cyclonedx-cli/cyclonedx-linux-x64" validate --input-file "$f" --input-format json --fail-on-errors || err "$f is not a valid CycloneDX document"
+          done
+          # An empty or foreign document must not pass: the SBOM has to describe the solution.
+          [ "$(jq -r '.metadata.component.name' "$VULNERABLE_PATH")" = DotnetVulnerable ] || err "vulnerable SBOM does not describe DotnetVulnerable"
+          [ "$(jq -r '.metadata.component.name' "$CLEAN_PATH")" = DotnetClean ] || err "clean SBOM does not describe DotnetClean"
+          # Newtonsoft.Json is only a transitive dependency of the fixture.
+          jq -e '[.components[].name] | index("Newtonsoft.Json")' "$VULNERABLE_PATH" > /dev/null || err "transitive Newtonsoft.Json missing from the SBOM"
+          # dotnet-clean has a test project; its packages and the project itself must not appear.
+          bad='^(xunit($|\..*)|Microsoft\.NET\.Test\.Sdk|coverlet\.collector)$|Tests'
+          for f in "$VULNERABLE_PATH" "$CLEAN_PATH"; do
+            hits=$(jq -r --arg re "$bad" '[.components[]?.name, .metadata.component.name] | map(select(. != null and test($re))) | .[]' "$f")
+            [ -z "$hits" ] || err "$f contains test components: $hits"
+          done
+          exit "$fail"
