@@ -88,6 +88,12 @@ jobs:
     name: gitleaks
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -187,6 +193,12 @@ jobs:
     name: nuget-audit
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
+          exit 1
       - name: NuGetAudit disabled
         if: ${{ !inputs.dotnet }}
         run: |
@@ -230,6 +242,12 @@ jobs:
     name: trivy
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
+          exit 1
       - name: Trivy disabled
         if: ${{ !inputs.trivy }}
         run: echo "Trivy disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
