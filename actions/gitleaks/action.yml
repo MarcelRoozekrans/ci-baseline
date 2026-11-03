@@ -16,6 +16,10 @@ inputs:
   report-path:
     description: Where to write a JSON report. Empty means no report.
     default: ""
+outputs:
+  result:
+    description: "clean, findings or error. Set before the step fails, so callers can tell why it failed."
+    value: ${{ steps.scan.outputs.result }}
 runs:
   using: composite
   steps:
@@ -27,6 +31,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: '"$ACTION_PATH/../../lib/install-pinned.sh" "$GITLEAKS_URL" "$GITLEAKS_SHA256" "$RUNNER_TEMP/gitleaks-bin"'
     - name: Run gitleaks
+      id: scan
       shell: bash
       env:
         MODE: ${{ inputs.mode }}
@@ -37,20 +42,20 @@ runs:
       run: |
         # Actions runs bash with -e; the exit codes below are handled by hand.
         set +e -uo pipefail
+        fail_error() { # message
+          echo "result=error" >> "$GITHUB_OUTPUT"
+          echo "gitleaks ($MODE): error, $1" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::$1"
+          exit 1
+        }
         args=(git "$SOURCE" --redact --no-banner --exit-code 1)
         case "$MODE" in
           range)
-            if [ -z "$LOG_OPTS" ]; then
-              echo "::error::mode range needs log-opts"
-              exit 2
-            fi
+            [ -n "$LOG_OPTS" ] || fail_error "mode range needs log-opts"
             args+=("--log-opts=$LOG_OPTS")
             ;;
           history) args+=("--log-opts=--all") ;;
-          *)
-            echo "::error::mode must be range or history, got: $MODE"
-            exit 2
-            ;;
+          *) fail_error "mode must be range or history, got: $MODE" ;;
         esac
         [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
         report=${REPORT_PATH:-$RUNNER_TEMP/gitleaks-report-$$.json}
@@ -61,22 +66,26 @@ runs:
         rc=$?
 
         # Only counts and pass/fail go to the summary, never finding contents.
-        # gitleaks also exits 1 on fatal errors, so the report decides.
+        # gitleaks also exits 1 on fatal errors, so the report decides. A run
+        # without a readable report is an error, whatever the exit code.
         count=""
         if [ -f "$report" ]; then
           count=$(jq -e 'if type == "array" then length else empty end' "$report" 2>/dev/null) || count=""
         fi
-        if [ "$rc" -eq 0 ] && [ "${count:-0}" -eq 0 ]; then
+        if [ -n "$count" ] && [ "$rc" -eq 0 ] && [ "$count" -eq 0 ]; then
+          echo "result=clean" >> "$GITHUB_OUTPUT"
           echo "gitleaks ($MODE): 0 findings, passed" >> "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
-        if [ "$rc" -ne 0 ] && [ -n "$count" ] && [ "$count" -ge 1 ]; then
+        if [ -n "$count" ] && [ "$rc" -eq 1 ] && [ "$count" -ge 1 ]; then
           noun=findings
           [ "$count" -eq 1 ] && noun=finding
+          echo "result=findings" >> "$GITHUB_OUTPUT"
           echo "gitleaks ($MODE): $count $noun, failed" >> "$GITHUB_STEP_SUMMARY"
           echo "::error::gitleaks found secrets ($count $noun, values redacted)"
           exit 1
         fi
-        echo "gitleaks ($MODE): failed to run, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
-        echo "::error::gitleaks failed to run (exit $rc)"
-        exit "$([ "$rc" -ne 0 ] && echo "$rc" || echo 1)"
+        if [ -z "$count" ]; then
+          fail_error "gitleaks failed to run: exit code $rc and no readable report"
+        fi
+        fail_error "gitleaks failed to run: exit code $rc with $count report entries"

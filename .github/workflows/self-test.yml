@@ -110,15 +110,27 @@ jobs:
           mode: history
           source: ${{ steps.repo.outputs.repo }}
       - name: Assert outcomes
+        if: always()
         shell: bash
         env:
           LEAK: ${{ steps.leak.outcome }}
+          LEAK_RESULT: ${{ steps.leak.outputs.result }}
           NOLEAK: ${{ steps.noleak.outcome }}
+          NOLEAK_RESULT: ${{ steps.noleak.outputs.result }}
           HIST: ${{ steps.hist.outcome }}
+          HIST_RESULT: ${{ steps.hist.outputs.result }}
         run: |
-          [ "$LEAK" = failure ] || { echo "::error::range-with-leak outcome was $LEAK, expected failure"; exit 1; }
-          [ "$NOLEAK" = success ] || { echo "::error::range-without-leak outcome was $NOLEAK, expected success"; exit 1; }
-          [ "$HIST" = failure ] || { echo "::error::history outcome was $HIST, expected failure"; exit 1; }
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "range-with-leak outcome" "$LEAK" failure
+          expect "range-with-leak result" "$LEAK_RESULT" findings
+          expect "range-without-leak outcome" "$NOLEAK" success
+          expect "range-without-leak result" "$NOLEAK_RESULT" clean
+          expect "history outcome" "$HIST" failure
+          expect "history result" "$HIST_RESULT" findings
+          exit "$fail"
 
   history-clean:
     uses: ./.github/workflows/history-scan.yml
