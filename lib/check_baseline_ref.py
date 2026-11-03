@@ -18,10 +18,10 @@ class RefError(Exception):
     pass
 
 
-def expected_ref(manifest, config):
+def expected_ref(manifest: dict, config: dict) -> str:
     version = manifest.get(".")
     if not version:
-        version = config.get("initial-version") or (config.get("packages", {}).get(".", {}).get("initial-version"))
+        version = config.get("packages", {}).get(".", {}).get("initial-version") or config.get("initial-version")
     if not version:
         raise RefError("no version in the manifest key \".\" and no initial-version in the config")
     return "v" + str(version).split(".")[0]

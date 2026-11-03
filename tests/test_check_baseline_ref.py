@@ -38,6 +38,10 @@ class ExpectedRefTest(unittest.TestCase):
     def test_expected_ref_top_level_initial_version(self):
         self.assertEqual(check_baseline_ref.expected_ref({}, {"initial-version": "3.0.0"}), "v3")
 
+    def test_package_initial_version_wins_over_top_level(self):
+        config = {"initial-version": "3.0.0", "packages": {".": {"initial-version": "2.0.0"}}}
+        self.assertEqual(check_baseline_ref.expected_ref({}, config), "v2")
+
     def test_expected_ref_without_any_version_is_an_error(self):
         with self.assertRaises(check_baseline_ref.RefError):
             check_baseline_ref.expected_ref({}, {})
