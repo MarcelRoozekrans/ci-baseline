@@ -76,6 +76,9 @@ runs:
         MAX_DROP: ${{ inputs.max-drop }}
         LIB: ${{ github.action_path }}/../../lib/coverage_gate.py
       run: |
+        if [ "$MAX_DROP" != 1 ]; then
+          echo "max-drop: $MAX_DROP percentage points, not the default 1." >> "$GITHUB_STEP_SUMMARY"
+        fi
         if ! python3 "$LIB" check-codecov . "$MAX_DROP"; then
           echo "result=policy" >> "$GITHUB_OUTPUT"
           exit 1
