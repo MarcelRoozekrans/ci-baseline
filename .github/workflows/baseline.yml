@@ -50,6 +50,12 @@ jobs:
     outputs:
       languages: ${{ steps.split.outputs.languages }}
     steps:
+      - name: Refuse pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The internal actions come from this workflow's own repository and commit, the
       # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
@@ -105,7 +111,7 @@ jobs:
           path: .ci-baseline
           persist-credentials: false
       - name: Check the pull request commits
-        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -115,22 +121,18 @@ jobs:
             echo "::error::PR base commit $BASE_SHA is not reachable in the checkout, for example after a force-push to the base branch, so the PR range cannot be scanned. Re-run the job or rebase the PR."
             exit 1
           fi
-          # pull_request_target checks out the base branch; fetch the PR head without checking it out.
           if ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            git fetch --no-tags --quiet origin "$HEAD_SHA" || true
-          fi
-          if ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            echo "::error::PR head commit $HEAD_SHA is not in the checkout and could not be fetched, so the PR range cannot be scanned."
+            echo "::error::PR head commit $HEAD_SHA is not in the checkout, so the PR range cannot be scanned. Re-run the job."
             exit 1
           fi
       - name: Scan the pull request commits
-        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
+        if: github.event_name == 'pull_request'
         uses: ./.ci-baseline/actions/gitleaks
         with:
           mode: range
           log-opts: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
       - name: Not a pull request
-        if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+        if: github.event_name != 'pull_request'
         run: |
           echo "Not a pull request: the PR scan runs on pull requests, history-scan.yml covers history." >> "$GITHUB_STEP_SUMMARY"
 

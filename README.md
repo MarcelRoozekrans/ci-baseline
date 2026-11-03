@@ -51,6 +51,8 @@ jobs:
       solution: MyRepo.slnx # empty means the single solution file in the repo root
 ```
 
+Call it on `pull_request`, not `pull_request_target`. With `pull_request_target` the run has the base branch's secrets and a write token while it builds pull request code, so `baseline.yml` refuses that event and its `prepare` job fails.
+
 Grant all three permissions even with `codeql: false`. A reusable workflow cannot widen the permissions its caller grants, and GitHub rejects the call at startup when the nested CodeQL job asks for permissions the caller did not give.
 
 The input tables below list everything `baseline.yml` accepts.
