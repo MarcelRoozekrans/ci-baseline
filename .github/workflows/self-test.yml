@@ -1,0 +1,58 @@
+name: self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install actionlint
+        run: lib/install-pinned.sh "$ACTIONLINT_URL" "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint"
+      - name: actionlint
+        run: actionlint .github/workflows/*.yml
+      - name: Check action metadata
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = []
+          for path in sorted(glob.glob("actions/*/action.yml")):
+              with open(path) as f:
+                  doc = yaml.safe_load(f)
+              if not doc.get("name"):
+                  bad.append(f"{path}: missing name")
+              if not doc.get("description"):
+                  bad.append(f"{path}: missing description")
+              if (doc.get("runs") or {}).get("using") != "composite":
+                  bad.append(f"{path}: runs.using must be composite")
+          if bad:
+              print("\n".join(bad))
+              sys.exit(1)
+          PY
+      - name: installer-rejects-bad-checksum
+        id: badsum
+        continue-on-error: true
+        env:
+          GITHUB_PATH: ${{ runner.temp }}/badsum-path
+        run: lib/install-pinned.sh "$ACTIONLINT_URL" 0000000000000000000000000000000000000000000000000000000000000000 "$RUNNER_TEMP/badsum"
+      - name: Fail if the installer accepted a bad checksum
+        if: steps.badsum.outcome != 'failure'
+        run: exit 1
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t .
