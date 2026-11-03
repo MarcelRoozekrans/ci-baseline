@@ -209,6 +209,10 @@ jobs:
         env:
           CLEAN: ${{ steps.clean.outcome }}
           MISCONFIG: ${{ steps.misconfig.outcome }}
+          CLEAN_RESULT: ${{ steps.clean.outputs.result }}
+          MISCONFIG_RESULT: ${{ steps.misconfig.outputs.result }}
         run: |
+          [ "$CLEAN_RESULT" = clean ] || { echo "::error::clean result was '$CLEAN_RESULT', expected clean"; exit 1; }
+          [ "$MISCONFIG_RESULT" = findings ] || { echo "::error::misconfig result was '$MISCONFIG_RESULT', expected findings"; exit 1; }
           [ "$CLEAN" = success ] || { echo "::error::clean outcome was $CLEAN, expected success"; exit 1; }
           [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }

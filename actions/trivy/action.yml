@@ -7,6 +7,10 @@ inputs:
   image:
     description: Container image reference to scan with trivy image. Empty means no image scan.
     default: ""
+outputs:
+  result:
+    description: "clean, findings or error. error wins over findings, findings wins over clean, across fs and image."
+    value: ${{ steps.scan.outputs.result }}
 runs:
   using: composite
   steps:
@@ -17,6 +21,7 @@ runs:
         TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
       run: ${{ github.action_path }}/../../lib/install-pinned.sh "$TRIVY_URL" "$TRIVY_SHA256" "$RUNNER_TEMP/trivy-bin"
     - name: Run Trivy
+      id: scan
       shell: bash
       env:
         SCAN_PATH: ${{ inputs.path }}
@@ -25,6 +30,14 @@ runs:
         set -uo pipefail
         work=$(mktemp -d "$RUNNER_TEMP/trivy-XXXXXX")
         overall=0
+        result=clean
+        # error beats findings beats clean
+        set_result() {
+          case "$1" in
+            error) result=error ;;
+            findings) [ "$result" = error ] || result=findings ;;
+          esac
+        }
 
         # Scan to JSON first: trivy exits 1 both for findings and for fatal
         # errors, so a parseable report is what tells them apart. The table
@@ -40,7 +53,8 @@ runs:
           if [ -s "$json" ]; then
             count=$(jq -e '[.Results[]? | ((.Vulnerabilities // []) + (.Secrets // []) + (.Misconfigurations // [])) | length] | add // 0' "$json" 2>/dev/null) || count=""
           fi
-          if [ -z "$count" ]; then
+          if [ -z "$count" ] || { [ "$rc" -ne 0 ] && [ "$count" -eq 0 ]; }; then
+            set_result error
             echo "trivy ($label): failed to run, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
             echo "::error::trivy ($label) failed to run (exit $rc)"
             [ "$rc" -eq 0 ] && rc=1
@@ -65,11 +79,15 @@ runs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::error::trivy ($label) found $count HIGH or CRITICAL $noun"
+          set_result findings
           overall=1
         }
 
         scan "fs $SCAN_PATH" fs fs --scanners vuln,secret,misconfig -- "$SCAN_PATH"
         if [ -n "$IMAGE" ]; then
           scan "image $IMAGE" image image -- "$IMAGE"
+        else
+          echo "trivy (image): skipped, no image input" >> "$GITHUB_STEP_SUMMARY"
         fi
+        echo "result=$result" >> "$GITHUB_OUTPUT"
         exit "$overall"
