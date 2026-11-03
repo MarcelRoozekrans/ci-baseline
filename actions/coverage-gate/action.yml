@@ -34,6 +34,10 @@ runs:
       run: |
         if [ "$RUNNER_OS_NAME" != "Linux" ]; then
           echo "result=unsupported-os" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Coverage gate"
+            echo "Not run: coverage-gate supports Linux runners only in v1, and this runner is $RUNNER_OS_NAME. Run it in a Linux job."
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "::error::coverage-gate supports Linux runners in v1; run it in a Linux job"
           exit 1
         fi
@@ -45,8 +49,14 @@ runs:
         REASON: ${{ inputs.floor-override-reason }}
         LIB: ${{ github.action_path }}/../../lib/coverage_gate.py
       run: |
-        if ! python3 "$LIB" validate-floor "$FLOOR" "$REASON"; then
+        # The CLI prints a single ::error:: line on failure.
+        if ! msg=$(python3 "$LIB" validate-floor "$FLOOR" "$REASON"); then
           echo "result=invalid-floor" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Coverage gate"
+            echo "Invalid floor: ${msg#::error::}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg"
           exit 1
         fi
         # The reason can span lines, so write it with a delimiter.

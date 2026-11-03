@@ -27,13 +27,19 @@ runs:
         UPLOAD: ${{ inputs.upload }}
         TAG: ${{ inputs.tag }}
       run: |
-        if [ "$UPLOAD" != "true" ] && [ "$UPLOAD" != "false" ]; then
-          echo "::error::upload must be exactly true or false, got '$UPLOAD'"
+        fail_input() { # message
+          {
+            echo "### SBOM"
+            echo "Not generated: $1"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::$1"
           exit 1
+        }
+        if [ "$UPLOAD" != "true" ] && [ "$UPLOAD" != "false" ]; then
+          fail_input "upload must be exactly true or false, got '$UPLOAD'"
         fi
         if [ "$UPLOAD" = "true" ] && [ -z "$TAG" ]; then
-          echo "::error::upload is true but tag is empty; pass the release tag or set upload to false"
-          exit 1
+          fail_input "upload is true but tag is empty; pass the release tag or set upload to false"
         fi
     - name: Generate SBOM
       id: generate
