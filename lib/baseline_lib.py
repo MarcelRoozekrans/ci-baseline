@@ -98,7 +98,12 @@ def main(argv=None):
                 evaluations = json.load(sys.stdin)
             except ValueError as exc:
                 raise BaselineError("nowarn-check needs a JSON array on stdin: " + str(exc))
-            lines = nowarn_violations(evaluations, _tokens(args.codes))
+            if not isinstance(evaluations, list):
+                raise BaselineError("nowarn-check needs a JSON array on stdin")
+            try:
+                lines = nowarn_violations(evaluations, _tokens(args.codes))
+            except Exception as exc:  # unexpected msbuild JSON shape
+                raise BaselineError("nowarn-check failed: %s: %s" % (type(exc).__name__, exc))
             for line in lines:
                 print(line)
             return 1 if lines else 0

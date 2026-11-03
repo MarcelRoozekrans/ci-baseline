@@ -167,6 +167,18 @@ class CliExitCodeTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out.count("::error::"), 1)
 
+    def test_wrong_shape_json_exits_2(self):
+        bad = evaluation()
+        bad["Items"]["PackageReference"] = "Newtonsoft.Json"
+        code, out = self.run_check(json.dumps([bad]))
+        self.assertEqual(code, 2)
+        self.assertEqual(out.count("::error::"), 1)
+        self.assertIn("::error::nowarn-check failed: AttributeError", out)
+
+    def test_non_list_top_level_exits_2(self):
+        code, out = self.run_check("{}")
+        self.assertEqual(code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
