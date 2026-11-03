@@ -1,0 +1,76 @@
+name: gitleaks
+description: Scan git history or a commit range for secrets with a pinned gitleaks binary. Findings are always redacted.
+inputs:
+  mode:
+    description: "range scans the commits in log-opts; history scans every ref."
+    required: true
+  source:
+    description: Path of the git repository to scan.
+    default: "."
+  log-opts:
+    description: "git log options for range mode, for example base..head."
+    default: ""
+  config:
+    description: Path to a gitleaks TOML. Empty means gitleaks defaults plus the repo's .gitleaks.toml if present.
+    default: ""
+  report-path:
+    description: Where to write a JSON report. Empty means no report.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Install gitleaks
+      shell: bash
+      env:
+        GITLEAKS_URL: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+        GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      run: ${{ github.action_path }}/../../lib/install-pinned.sh "$GITLEAKS_URL" "$GITLEAKS_SHA256" "$RUNNER_TEMP/gitleaks-bin"
+    - name: Run gitleaks
+      shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        SOURCE: ${{ inputs.source }}
+        LOG_OPTS: ${{ inputs.log-opts }}
+        CONFIG: ${{ inputs.config }}
+        REPORT_PATH: ${{ inputs.report-path }}
+      run: |
+        set -uo pipefail
+        args=(git "$SOURCE" --redact --no-banner --exit-code 1)
+        case "$MODE" in
+          range)
+            if [ -z "$LOG_OPTS" ]; then
+              echo "::error::mode range needs log-opts"
+              exit 2
+            fi
+            args+=("--log-opts=$LOG_OPTS")
+            ;;
+          history) args+=("--log-opts=--all") ;;
+          *)
+            echo "::error::mode must be range or history, got: $MODE"
+            exit 2
+            ;;
+        esac
+        [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
+        [ -n "$REPORT_PATH" ] && args+=(--report-format json --report-path "$REPORT_PATH")
+
+        gitleaks "${args[@]}"
+        rc=$?
+
+        # Only counts and pass/fail go to the summary, never finding contents.
+        if [ -n "$REPORT_PATH" ] && [ -f "$REPORT_PATH" ]; then
+          count=$(jq 'length' "$REPORT_PATH")
+        elif [ "$rc" -eq 0 ]; then
+          count=0
+        else
+          count="at least 1"
+        fi
+        if [ "$rc" -eq 0 ]; then
+          echo "gitleaks ($MODE): $count findings, passed" >> "$GITHUB_STEP_SUMMARY"
+        elif [ "$rc" -eq 1 ]; then
+          echo "gitleaks ($MODE): $count findings, failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::gitleaks found secrets ($count findings, values redacted)"
+        else
+          echo "gitleaks ($MODE): error, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::gitleaks failed with exit code $rc"
+        fi
+        exit "$rc"

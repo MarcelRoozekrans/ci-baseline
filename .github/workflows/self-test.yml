@@ -61,3 +61,64 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Unit tests
         run: python3 -m unittest discover -s tests -t .
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build throwaway repo with a runtime-generated leak
+        id: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/leakrepo"
+          git init -q "$repo"
+          cd "$repo"
+          g() { git -c user.name=selftest -c user.email=selftest@example.com "$@"; }
+          echo clean > a.txt
+          g add . && g commit -q -m "A clean"
+          echo "a=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "token=ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)" > token.txt
+          g add . && g commit -q -m "B leak"
+          echo "b=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo clean2 > c.txt
+          g add . && g commit -q -m "C clean"
+          echo "c=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+      - name: range-with-leak
+        id: leak
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.a }}..${{ steps.repo.outputs.c }}
+      - name: range-without-leak
+        id: noleak
+        uses: ./actions/gitleaks
+        with:
+          mode: range
+          source: ${{ steps.repo.outputs.repo }}
+          log-opts: ${{ steps.repo.outputs.b }}..${{ steps.repo.outputs.c }}
+      - name: history
+        id: hist
+        continue-on-error: true
+        uses: ./actions/gitleaks
+        with:
+          mode: history
+          source: ${{ steps.repo.outputs.repo }}
+      - name: Assert outcomes
+        shell: bash
+        env:
+          LEAK: ${{ steps.leak.outcome }}
+          NOLEAK: ${{ steps.noleak.outcome }}
+          HIST: ${{ steps.hist.outcome }}
+        run: |
+          [ "$LEAK" = failure ] || { echo "::error::range-with-leak outcome was $LEAK, expected failure"; exit 1; }
+          [ "$NOLEAK" = success ] || { echo "::error::range-without-leak outcome was $NOLEAK, expected success"; exit 1; }
+          [ "$HIST" = failure ] || { echo "::error::history outcome was $HIST, expected failure"; exit 1; }
+
+  history-clean:
+    uses: ./.github/workflows/history-scan.yml
+    with:
+      baseline-ref: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -1,0 +1,55 @@
+name: history-scan
+
+on:
+  workflow_call:
+    inputs:
+      baseline-ref:
+        description: Ref of MarcelRoozekrans/ci-baseline that supplies the internal actions.
+        type: string
+        default: v1
+    secrets:
+      GITLEAKS_CONFIG:
+        description: Optional gitleaks TOML content, used instead of the repo's own config.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  history-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Fetch all branches
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: MarcelRoozekrans/ci-baseline
+          ref: ${{ inputs.baseline-ref }}
+          path: .ci-baseline
+          persist-credentials: false
+      - name: Write gitleaks config
+        id: cfg
+        env:
+          GITLEAKS_CONFIG: ${{ secrets.GITLEAKS_CONFIG }}
+        run: |
+          if [ -n "$GITLEAKS_CONFIG" ]; then
+            umask 077
+            printf '%s\n' "$GITLEAKS_CONFIG" > "$RUNNER_TEMP/gitleaks.toml"
+            echo "path=$RUNNER_TEMP/gitleaks.toml" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.ci-baseline/actions/gitleaks
+        with:
+          mode: history
+          config: ${{ steps.cfg.outputs.path }}
+          report-path: ${{ runner.temp }}/gitleaks-report.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: gitleaks-report
+          path: ${{ runner.temp }}/gitleaks-report.json
+          retention-days: 7
+          if-no-files-found: ignore
