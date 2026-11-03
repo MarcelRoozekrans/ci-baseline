@@ -26,7 +26,8 @@ runs:
         IMAGE: ${{ inputs.image }}
         RESULT_FILE: ${{ inputs.result-file }}
       run: |
-        set -uo pipefail
+        # Actions runs bash with -e; the exit codes below are handled by hand.
+        set +e -uo pipefail
         work=$(mktemp -d "$RUNNER_TEMP/trivy-XXXXXX")
         overall=0
         result=clean
