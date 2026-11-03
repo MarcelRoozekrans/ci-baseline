@@ -89,5 +89,12 @@ runs:
         else
           echo "trivy (image): skipped, no image input" >> "$GITHUB_STEP_SUMMARY"
         fi
+        # Composite outputs are not exported from a failed step, so this step
+        # always succeeds and the next one turns the result into the exit code.
         echo "result=$result" >> "$GITHUB_OUTPUT"
-        exit "$overall"
+        echo "exit=$overall" >> "$GITHUB_OUTPUT"
+    - name: Fail on findings or errors
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.scan.outputs.exit }}
+      run: exit "${EXIT_CODE:-1}"
