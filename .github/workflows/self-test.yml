@@ -212,7 +212,7 @@ jobs:
           CLEAN: ${{ steps.clean.outcome }}
           MISCONFIG: ${{ steps.misconfig.outcome }}
         run: |
-          ls -la "$RUNNER_TEMP" | sed 's/^/::warning::/' | head -20
+          ls -A "$RUNNER_TEMP" | tr '\n' ' ' | sed 's/^/::warning::/'
           CLEAN_RESULT=$(cat "$RUNNER_TEMP/trivy-clean.result")
           MISCONFIG_RESULT=$(cat "$RUNNER_TEMP/trivy-misconfig.result")
           [ "$CLEAN_RESULT" = clean ] || { echo "::error::clean result was '$CLEAN_RESULT', expected clean"; exit 1; }
