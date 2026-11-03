@@ -120,9 +120,10 @@ runs:
           "-assemblyfilters:-*Tests*;-*Benchmarks*;-*Samples*;-*AotSmoke*" \
           "-filefilters:-*/tests/*;-*/benchmarks/*;-*/samples/*;-*/obj/*;-*.g.cs" \
           || fail_error "ReportGenerator failed to merge the coverage reports"
-        if python3 "$LIB" check-floor "$out/Summary.json" "$FLOOR"; then
-          echo "result=pass" >> "$GITHUB_OUTPUT"
-        else
-          echo "result=below-floor" >> "$GITHUB_OUTPUT"
-          exit 1
-        fi
+        status=0
+        python3 "$LIB" check-floor "$out/Summary.json" "$FLOOR" || status=$?
+        case "$status" in
+          0) echo "result=pass" >> "$GITHUB_OUTPUT" ;;
+          1) echo "result=below-floor" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          *) echo "result=error" >> "$GITHUB_OUTPUT"; exit 1 ;;
+        esac

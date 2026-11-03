@@ -245,13 +245,26 @@ class CliTests(unittest.TestCase):
     def test_check_floor_bad_floor_is_error_not_traceback(self):
         path = self.write("s.json", json.dumps({"summary": {"linecoverage": 90}}))
         code, out = self.run_cli("check-floor", path, "abc")
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 2)
         self.assertTrue(out.startswith("::error::"))
 
     def test_check_floor_unreadable_summary(self):
         code, out = self.run_cli("check-floor", os.path.join(self.tmp.name, "none.json"), "80")
-        self.assertEqual(code, 1)
-        self.assertIn("::error::", out)
+        self.assertEqual(code, 2)
+        self.assertEqual(out.count("::error::"), 1)
+
+    def test_check_floor_malformed_json_is_exit_2(self):
+        path = self.write("s.json", "{not json")
+        code, out = self.run_cli("check-floor", path, "80")
+        self.assertEqual(code, 2)
+        self.assertEqual(out.count("::error::"), 1)
+
+    def test_check_floor_missing_linecoverage_is_exit_2(self):
+        path = self.write("s.json", json.dumps({"summary": {}}))
+        code, out = self.run_cli("check-floor", path, "80")
+        self.assertEqual(code, 2)
+        self.assertEqual(out.count("::error::"), 1)
+        self.assertEqual(self.summary_text(), "")
 
     def test_check_codecov_ok(self):
         import yaml

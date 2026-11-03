@@ -20,6 +20,10 @@ class GateError(Exception):
     pass
 
 
+class SummaryError(GateError):
+    """The coverage summary or floor could not be used: an error, not a below-floor result."""
+
+
 def _fmt(value):
     return "%g" % value
 
@@ -111,7 +115,7 @@ def line_coverage(summary):
     try:
         return float(summary["summary"]["linecoverage"])
     except (KeyError, TypeError, ValueError):
-        raise GateError("coverage summary has no summary.linecoverage value")
+        raise SummaryError("coverage summary has no summary.linecoverage value")
 
 
 def _summary(*lines):
@@ -153,12 +157,15 @@ def main(argv=None):
                 raise GateError("; ".join("%s: %s" % (path, e) for e in errors))
             _summary("codecov policy: %s enforces project status" % path)
         elif command == "check-floor" and len(args) == 2:
-            floor = validate_floor(args[1], "reason")
+            try:
+                floor = validate_floor(args[1], "reason")
+            except GateError as exc:
+                raise SummaryError(str(exc))
             try:
                 with open(args[0]) as handle:
                     value = line_coverage(json.load(handle))
             except (OSError, ValueError) as exc:
-                raise GateError("cannot read coverage summary %s: %s" % (args[0], exc))
+                raise SummaryError("cannot read coverage summary %s: %s" % (args[0], exc))
             # Compare the value that is printed, so "80% is below 80%" cannot happen.
             shown = round(value, 2)
             _summary("Line coverage: %s%% (floor %s%%)" % (_fmt(shown), _fmt(floor)))
@@ -166,6 +173,9 @@ def main(argv=None):
                 raise GateError("line coverage %s%% is below the floor of %s%%" % (_fmt(shown), _fmt(floor)))
         else:
             raise GateError(usage)
+    except SummaryError as exc:
+        print("::error::" + str(exc))
+        return 2
     except GateError as exc:
         print("::error::" + str(exc))
         return 1
