@@ -51,26 +51,30 @@ runs:
             ;;
         esac
         [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
-        [ -n "$REPORT_PATH" ] && args+=(--report-format json --report-path "$REPORT_PATH")
+        report=${REPORT_PATH:-$RUNNER_TEMP/gitleaks-report-$$.json}
+        rm -f "$report"
+        args+=(--report-format json --report-path "$report")
 
         gitleaks "${args[@]}"
         rc=$?
 
         # Only counts and pass/fail go to the summary, never finding contents.
-        if [ -n "$REPORT_PATH" ] && [ -f "$REPORT_PATH" ]; then
-          count=$(jq 'length' "$REPORT_PATH")
-        elif [ "$rc" -eq 0 ]; then
-          count=0
-        else
-          count="at least 1"
+        # gitleaks also exits 1 on fatal errors, so the report decides.
+        count=""
+        if [ -f "$report" ]; then
+          count=$(jq -e 'if type == "array" then length else empty end' "$report" 2>/dev/null) || count=""
         fi
-        if [ "$rc" -eq 0 ]; then
-          echo "gitleaks ($MODE): $count findings, passed" >> "$GITHUB_STEP_SUMMARY"
-        elif [ "$rc" -eq 1 ]; then
-          echo "gitleaks ($MODE): $count findings, failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::gitleaks found secrets ($count findings, values redacted)"
-        else
-          echo "gitleaks ($MODE): error, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::gitleaks failed with exit code $rc"
+        if [ "$rc" -eq 0 ] && [ "${count:-0}" -eq 0 ]; then
+          echo "gitleaks ($MODE): 0 findings, passed" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
         fi
-        exit "$rc"
+        if [ "$rc" -ne 0 ] && [ -n "$count" ] && [ "$count" -ge 1 ]; then
+          noun=findings
+          [ "$count" -eq 1 ] && noun=finding
+          echo "gitleaks ($MODE): $count $noun, failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::gitleaks found secrets ($count $noun, values redacted)"
+          exit 1
+        fi
+        echo "gitleaks ($MODE): failed to run, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
+        echo "::error::gitleaks failed to run (exit $rc)"
+        exit "$([ "$rc" -ne 0 ] && echo "$rc" || echo 1)"
