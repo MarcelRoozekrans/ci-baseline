@@ -328,10 +328,17 @@ The workflow cannot tell these apart in advance, because the caller's `GITHUB_TO
 The release workflow moves the `v1` tag to the release commit. When that job fails, callers stay on the old commit. Move the tag yourself:
 
 ```sh
-git tag -f v1 <sha> && git push -f origin refs/tags/v1
+git fetch --force --tags origin
+TAG=v1.2.0  # the tag of the release whose move-major-tag job failed
+SHA=$(git rev-list -n 1 "$TAG")
+OLD=$(git rev-parse refs/tags/v1)
+git rev-list -n 1 v1   # if this is a newer release than $TAG, stop: v1 is already ahead
+git tag -f v1 "$SHA" && git push --force-with-lease=refs/tags/v1:"$OLD" origin refs/tags/v1
 ```
 
-`<sha>` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
+Set `TAG` to the tag of the release whose `move-major-tag` job failed. Check it on the release
+page; do not assume it is the latest release, which can be a later release or another major line.
+`--force` on the fetch updates a local `v1` that is behind `origin`, and the lease makes the push fail if `v1` moved after the fetch. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
 
 ### `codecov/project` never reports
 
