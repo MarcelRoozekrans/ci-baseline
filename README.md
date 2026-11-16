@@ -335,7 +335,8 @@ git tag -f v1 "$SHA" && git push -f origin refs/tags/v1
 ```
 
 Set `TAG` to the tag of the release whose `move-major-tag` job failed. Check it on the release
-page; do not assume it is the latest release, which can be a later release or another major line. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
+page; do not assume it is the latest release, which can be a later release or another major line.
+If `v1` already points at a newer release (`git rev-list -n 1 v1`), leave it there. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
 
 ### `codecov/project` never reports
 
