@@ -63,8 +63,8 @@ the outcome of steps that are expected to fail, so a red step inside them can be
   through `lib/install-pinned.sh url sha256 dest`, which verifies the checksum. Keep that when
   adding a tool.
 - **`pull_request_target` is refused** by `baseline.yml`; do not weaken that.
-- **Moving `v1` by hand** when `move-major-tag` failed, with `$SHA` the release commit:
-  `git tag -f v1 "$SHA" && git push -f origin refs/tags/v1`.
+- **Moving `v1` by hand** when `move-major-tag` failed: the README section "Moving `v1` by hand"
+  has the commands, which set `TAG` and `SHA` from the latest release before moving the tag.
 
 <!-- org-core:start sha256=08a88996bc9165f888fc0260607cfd0670cae128c323e16707c6b452ee66222d (generated from docker-nuc scripts/agents-md/org-core-personal.md; do not edit here) -->
 ## Org rules

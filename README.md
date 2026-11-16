@@ -328,10 +328,13 @@ The workflow cannot tell these apart in advance, because the caller's `GITHUB_TO
 The release workflow moves the `v1` tag to the release commit. When that job fails, callers stay on the old commit. Move the tag yourself:
 
 ```sh
+git fetch --tags
+TAG=$(gh release view --json tagName -q .tagName)
+SHA=$(git rev-list -n 1 "$TAG")
 git tag -f v1 "$SHA" && git push -f origin refs/tags/v1
 ```
 
-`$SHA` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
+`TAG` is the latest release; set it by hand, as in `TAG=v1.2.0`, to move `v1` to an older one. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
 
 ### `codecov/project` never reports
 
