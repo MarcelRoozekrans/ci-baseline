@@ -328,10 +328,10 @@ The workflow cannot tell these apart in advance, because the caller's `GITHUB_TO
 The release workflow moves the `v1` tag to the release commit. When that job fails, callers stay on the old commit. Move the tag yourself:
 
 ```sh
-git tag -f v1 <sha> && git push -f origin refs/tags/v1
+git tag -f v1 "$SHA" && git push -f origin refs/tags/v1
 ```
 
-`<sha>` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
+`$SHA` is the commit of the release, as shown on the release page. The push needs a token that is allowed to write tags in this repo, and to write workflows when the release changes files under `.github/workflows`. The release bot App needs the same: write access to contents and workflows on its installation.
 
 ### `codecov/project` never reports
 
