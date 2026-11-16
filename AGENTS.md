@@ -64,7 +64,7 @@ the outcome of steps that are expected to fail, so a red step inside them can be
   adding a tool.
 - **`pull_request_target` is refused** by `baseline.yml`; do not weaken that.
 - **Moving `v1` by hand** when `move-major-tag` failed: the README section "Moving `v1` by hand"
-  has the commands, which set `TAG` and `SHA` from the latest release before moving the tag.
+  has the commands. Set `TAG` to the tag of the release whose job failed, never to the latest release.
 
 <!-- org-core:start sha256=08a88996bc9165f888fc0260607cfd0670cae128c323e16707c6b452ee66222d (generated from docker-nuc scripts/agents-md/org-core-personal.md; do not edit here) -->
 ## Org rules
