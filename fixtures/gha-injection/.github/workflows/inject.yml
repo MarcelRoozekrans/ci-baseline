@@ -1,0 +1,10 @@
+# Broken on purpose: the semgrep self-test must find the script injection below. Do not fix it.
+name: inject
+on: issues
+permissions:
+  contents: read
+jobs:
+  greet:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "New issue ${{ github.event.issue.title }}"

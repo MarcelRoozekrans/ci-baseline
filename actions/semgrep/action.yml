@@ -1,0 +1,114 @@
+name: semgrep
+description: Scan a path with a pinned Semgrep and rules from a pinned commit of semgrep-rules. Fails on any finding.
+inputs:
+  path:
+    description: Path that Semgrep scans.
+    default: "."
+  rules:
+    description: Space separated directories of semgrep-rules whose rules are used.
+    default: yaml/github-actions/security generic/secrets/security
+  skip-dirs:
+    description: "Space separated paths that Semgrep leaves out, for example .ci-baseline. Empty means none."
+    default: ""
+outputs:
+  result:
+    description: "clean, findings or error."
+    value: ${{ steps.scan.outputs.result }}
+runs:
+  using: composite
+  steps:
+    # The hashes in lib/semgrep/requirements.txt are for this Python version.
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      id: python
+      with:
+        python-version: "3.12"
+        update-environment: false
+    - name: Install Semgrep from hashed requirements
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PYTHON: ${{ steps.python.outputs.python-path }}
+      run: |
+        set -euo pipefail
+        "$PYTHON" -m venv "$RUNNER_TEMP/semgrep-venv"
+        "$RUNNER_TEMP/semgrep-venv/bin/pip" install --quiet --disable-pip-version-check \
+          --require-hashes --only-binary :all: -r "$ACTION_PATH/../../lib/semgrep/requirements.txt"
+    # Rules are fetched at a fixed commit rather than from the registry, so a new upstream rule
+    # reaches callers only through a ci-baseline release. They are not copied into this repo.
+    - name: Fetch the pinned rules
+      shell: bash
+      env:
+        RULES_REPO: https://github.com/semgrep/semgrep-rules
+        RULES_SHA: a5ad1714f00c9f7fde980cab0ea1d6dc6d414fd2
+        RULES: ${{ inputs.rules }}
+      run: |
+        set -euo pipefail
+        src="$RUNNER_TEMP/semgrep-rules-src"
+        dest="$RUNNER_TEMP/semgrep-rules"
+        git init -q "$src"
+        git -C "$src" fetch -q --depth 1 "$RULES_REPO" "$RULES_SHA"
+        got=$(git -C "$src" rev-parse FETCH_HEAD)
+        if [ "$got" != "$RULES_SHA" ]; then
+          echo "::error::semgrep-rules fetch returned $got, expected $RULES_SHA"
+          exit 1
+        fi
+        git -C "$src" -c advice.detachedHead=false checkout -q FETCH_HEAD
+        mkdir -p "$dest"
+        set -f
+        for dir in $RULES; do
+          set +f
+          if [ ! -d "$src/$dir" ]; then
+            echo "::error::semgrep-rules has no directory $dir"
+            exit 1
+          fi
+          # Rule files only: the *.test.yaml files next to them are test targets, not rules.
+          (cd "$src" && find "$dir" -name '*.yaml' ! -name '*.test.yaml' -exec cp --parents {} "$dest/" \;)
+        done
+        set +f
+        count=$(find "$dest" -name '*.yaml' | wc -l)
+        if [ "$count" -eq 0 ]; then
+          echo "::error::no Semgrep rules selected"
+          exit 1
+        fi
+        echo "Semgrep rules: $count from semgrep-rules@$RULES_SHA" >> "$GITHUB_STEP_SUMMARY"
+    - name: Run Semgrep
+      id: scan
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        SKIP_DIRS: ${{ inputs.skip-dirs }}
+      run: |
+        set -uo pipefail
+        args=()
+        set -f
+        for dir in $SKIP_DIRS; do args+=(--exclude "$dir"); done
+        set +f
+        log="$RUNNER_TEMP/semgrep.log"
+        set +e
+        "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --metrics=off --disable-version-check --error --quiet \
+          --config "$RUNNER_TEMP/semgrep-rules" "${args[@]}" -- "$SCAN_PATH" > "$log" 2>&1
+        rc=$?
+        set -e
+        cat "$log"
+        # With --error Semgrep exits 1 for findings; any other non-zero code is a failed run.
+        case "$rc" in
+          0) result=clean; echo "semgrep: 0 findings, passed" >> "$GITHUB_STEP_SUMMARY" ;;
+          1)
+            result=findings
+            {
+              echo "semgrep: findings, failed"
+              echo
+              echo '```'
+              cat "$log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::semgrep found issues; see the job summary"
+            ;;
+          *)
+            result=error
+            echo "semgrep: failed to run, exit code $rc" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::semgrep failed to run (exit $rc)"
+            ;;
+        esac
+        echo "result=$result" >> "$GITHUB_OUTPUT"
+        exit "$rc"

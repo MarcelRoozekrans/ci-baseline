@@ -11,12 +11,14 @@ what ships is the YAML on the `v1` tag, plus a few Python and shell helpers unde
   workflows.
   `release-please.yml` and `self-test.yml` run on this repo only.
 - `actions/*` are composite actions. `coverage-gate` and `sbom` are public. `commitlint`, `gitleaks`,
-  `markdown-links`, `nuget-audit` and `trivy` are internal: the workflows call them, and they may change in any release.
+  `markdown-links`, `nuget-audit`, `semgrep` and `trivy` are internal: the workflows call them, and they may change in any release.
 - `lib/` holds the logic the actions call: `coverage_gate.py`, `baseline_lib.py`, `check_links.py`,
   `install-pinned.sh` and `check_readme.py`, and `lib/commitlint/` the pinned commitlint with its
-  lockfile and the house config. `tests/` are the unit tests.
+  lockfile and the house config, and `lib/semgrep/` the hashed requirements for Semgrep. `tests/`
+  are the unit tests.
 - `fixtures/` are inputs for the self-test, not examples. Most of them are broken on purpose
-  (`dotnet-vulnerable`, `dotnet-nowarn*`, `dotnet-lowcov`, `iac-misconfig`, `markdown-broken`). Do not fix them. Renovate
+  (`dotnet-vulnerable`, `dotnet-nowarn*`, `dotnet-lowcov`, `iac-misconfig`, `markdown-broken`,
+  `gha-injection`). Do not fix them. Renovate
   ignores them.
 - `.github/actionlint.yaml` ignores `job.workflow_sha` and `workflow_repository` errors until
   actionlint supports them; see issue #3.

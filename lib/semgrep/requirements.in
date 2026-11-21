@@ -1,0 +1,5 @@
+# Semgrep for actions/semgrep. Regenerate requirements.txt with hashes for the Python version the
+# action sets up:
+#   uv pip compile requirements.in --generate-hashes --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --no-header -o requirements.txt
+semgrep==1.186.0
