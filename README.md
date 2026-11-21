@@ -14,6 +14,8 @@ Reusable GitHub Actions workflows and composite actions that give .NET repositor
 | SBOM | your release job | a failed CycloneDX run, or a failed upload to the release |
 | Full-history gitleaks | by hand, before a repo goes public | a secret anywhere in any ref |
 | Trivy | `baseline.yml`, off by default | a HIGH or CRITICAL finding in the files or in one image |
+| commitlint | `conventions.yml`, pull requests | a commit the pull request adds that is not a Conventional Commit |
+| Markdown links | `conventions.yml` | a relative link or heading anchor in a Markdown file that does not resolve |
 
 ## Versioning
 
@@ -202,6 +204,34 @@ A required check must report on every pull request. That is why the gitleaks job
 
 Delete `.github/dependabot.yml` if there is one. Renovate does the dependency updates. It also picks up the `@v1` references.
 
+## Add the conventions checks to any repo
+
+`conventions.yml` needs no .NET code, so it fits a documentation repo as well as a product repo. Put this in `ci.yml` or in a new `conventions.yml`, and name the job `conventions`:
+
+```yaml
+name: conventions
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  conventions:
+    uses: MarcelRoozekrans/ci-baseline/.github/workflows/conventions.yml@v1
+```
+
+commitlint checks the commits a pull request adds, with the repo's own commitlint config when commitlint finds one (any location commitlint supports, `package.json` included), and otherwise with the house config in `lib/commitlint/commitlintrc.yml`: `@commitlint/config-conventional` with the changelog types release-please reads, plus `bench`. commitlint and its shared configs are installed from a lockfile, so their versions only change with a ci-baseline release. The pinned `@commitlint/config-conventional` is linked into the repo's `node_modules` when the repo does not have it. The job installs nothing else, so a repo whose config loads another package, as a shared config, parser preset, plugin or formatter, keeps its own commitlint job and calls `conventions.yml` with `commitlint: false`.
+
+The link check reads every `*.md` file outside `.git` and `node_modules`. It checks relative links, images and reference definitions, and `#anchors` against the headings of the target file. Absolute URLs are not checked: they need the network and would make the check flaky.
+
+Add `conventions / commitlint` and `conventions / markdown-links` as required status checks. Both report on every event: commitlint passes with a note outside pull requests, and a check turned off by its input says so in its summary.
+
+A repo whose commitlint config loads no package other than `@commitlint/config-conventional`, in `extends`, `parserPreset`, `plugins` or `formatter`, can drop its own commitlint job once it calls `conventions.yml`. Any other repo keeps its own job.
+
 ## Inputs
 
 ### baseline.yml inputs
@@ -221,6 +251,15 @@ Delete `.github/dependabot.yml` if there is one. Renovate does the dependency up
 ### history-scan.yml
 
 `history-scan.yml` takes no inputs. It takes the optional secret `GITLEAKS_CONFIG`, described in step 4.
+
+### conventions.yml inputs
+
+| Input | Default | What it does |
+| --- | --- | --- |
+| `commitlint` | `true` | Run commitlint on the commits a pull request adds. |
+| `commitlint-config` | empty | Path of the repo's commitlint config. Empty means the repo's own config if it has one, otherwise the house config. |
+| `markdown-links` | `true` | Check the relative links in the repo's Markdown files. |
+| `markdown-exclude` | empty | Space-separated directories whose Markdown files the link check leaves out, for example fixtures that are broken on purpose. |
 
 ### coverage-gate inputs
 
@@ -350,4 +389,4 @@ The gate runs on Linux only in v1. Run it in a Linux job.
 
 ## Checks on this repo
 
-`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, calls it a second time with CodeQL, NuGetAudit and Trivy turned off and expects that call to pass, and runs each internal action on a fixture that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.
+`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, calls it a second time with CodeQL, NuGetAudit and Trivy turned off and expects that call to pass, calls `conventions.yml` on its own pull request commits and Markdown, calls it again with both checks off, and runs each internal action on a fixture or a commit that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py` and `lib/check_links.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.

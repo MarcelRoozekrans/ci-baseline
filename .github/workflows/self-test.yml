@@ -169,6 +169,136 @@ jobs:
           expect "unknown-range result" "$BADRANGE_RESULT" error
           exit "$fail"
 
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Add commits on top of the checkout
+        id: commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          g() { git -c user.name=selftest -c user.email=selftest@example.com "$@"; }
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          g commit -q --allow-empty -m "docs: a conventional commit with MagicLink.NET in the subject"
+          echo "good=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          g commit -q --allow-empty -m "Not a conventional commit"
+          echo "bad=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # An existing node_modules with only an unrelated package: the preset must still resolve.
+          mkdir -p node_modules/unrelated
+          echo '{"name":"unrelated","version":"1.0.0"}' > node_modules/unrelated/package.json
+      - name: house-config-good
+        id: good
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+      - name: house-config-bad
+        id: bad
+        continue-on-error: true
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.bad }}
+      # A repo config that allows only feat: the docs commit that passes the house config must fail.
+      - name: Write a repo config
+        run: |
+          printf 'extends:\n  - "@commitlint/config-conventional"\nrules:\n  type-enum: [2, always, [feat]]\n' > .commitlintrc.yml
+      - name: repo-config
+        id: repo
+        continue-on-error: true
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+      # A config in package.json, which commitlint finds itself.
+      - name: Move the repo config into package.json
+        run: |
+          rm .commitlintrc.yml
+          echo '{"name":"x","private":true,"commitlint":{"extends":["@commitlint/config-conventional"],"rules":{"type-enum":[2,"always",["feat"]]}}}' > package.json
+      - name: package-json-config
+        id: pkg
+        continue-on-error: true
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+      - name: missing-config
+        id: missing
+        continue-on-error: true
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+          config: no-such-config.yml
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          GOOD: ${{ steps.good.outcome }}
+          GOOD_CONFIG: ${{ steps.good.outputs.config }}
+          BAD: ${{ steps.bad.outcome }}
+          REPO: ${{ steps.repo.outcome }}
+          REPO_CONFIG: ${{ steps.repo.outputs.config }}
+          PKG: ${{ steps.pkg.outcome }}
+          PKG_CONFIG: ${{ steps.pkg.outputs.config }}
+          MISSING: ${{ steps.missing.outcome }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "house-config-good outcome" "$GOOD" success
+          expect "house-config-good config" "$GOOD_CONFIG" house
+          expect "house-config-bad outcome" "$BAD" failure
+          expect "repo-config outcome" "$REPO" failure
+          expect "repo-config config" "$REPO_CONFIG" repo
+          expect "package-json-config outcome" "$PKG" failure
+          expect "package-json-config config" "$PKG_CONFIG" repo
+          expect "missing-config outcome" "$MISSING" failure
+          exit "$fail"
+
+  markdown-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: broken
+        id: broken
+        continue-on-error: true
+        uses: ./actions/markdown-links
+        with:
+          path: fixtures/markdown-broken
+      - name: repo-without-fixture
+        id: clean
+        uses: ./actions/markdown-links
+        with:
+          exclude: fixtures/markdown-broken
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          BROKEN: ${{ steps.broken.outcome }}
+          CLEAN: ${{ steps.clean.outcome }}
+        run: |
+          [ "$BROKEN" = failure ] || { echo "::error::broken outcome was $BROKEN, expected failure"; exit 1; }
+          [ "$CLEAN" = success ] || { echo "::error::repo-without-fixture outcome was $CLEAN, expected success"; exit 1; }
+
+  # The workflow as callers use it, on this repo's own pull request commits and Markdown.
+  conventions:
+    uses: ./.github/workflows/conventions.yml
+    with:
+      markdown-exclude: fixtures/markdown-broken
+
+  # Every check off: each job must still run, report and pass.
+  conventions-disabled:
+    uses: ./.github/workflows/conventions.yml
+    with:
+      commitlint: false
+      markdown-links: false
+
   history-clean:
     uses: ./.github/workflows/history-scan.yml
 

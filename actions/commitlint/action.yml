@@ -1,0 +1,88 @@
+name: commitlint
+description: Lint a range of commit messages as Conventional Commits with a pinned commitlint. Uses the repo's own commitlint config when it has one, otherwise the ci-baseline house config.
+inputs:
+  from:
+    description: Commit after which the range starts, for example the pull request base.
+    required: true
+  to:
+    description: Last commit of the range, for example the pull request head.
+    required: true
+  config:
+    description: Path of a commitlint config in the repo. Empty means the config commitlint finds in the repo if there is one, otherwise the house config.
+    default: ""
+outputs:
+  config:
+    description: "Which config was used: the config input, repo for a config commitlint found, or house."
+    value: ${{ steps.lint.outputs.config }}
+runs:
+  using: composite
+  steps:
+    - name: Install commitlint from the lockfile
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: npm ci --prefix "$ACTION_PATH/../../lib/commitlint" --ignore-scripts --no-audit --no-fund --loglevel=error
+    - name: Lint the commits
+      id: lint
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        FROM: ${{ inputs.from }}
+        TO: ${{ inputs.to }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -uo pipefail
+        lib="$ACTION_PATH/../../lib/commitlint"
+        commitlint="$lib/node_modules/.bin/commitlint"
+        # A repo config extends the shared preset by package name, and Node resolves that from the
+        # repo's directory. Link the pinned preset in when the repo does not have it, next to any
+        # packages the repo installed itself.
+        if [ ! -e node_modules/@commitlint/config-conventional ]; then
+          mkdir -p node_modules/@commitlint
+          ln -s "$lib/node_modules/@commitlint/config-conventional" node_modules/@commitlint/config-conventional
+        fi
+        if [ -n "$CONFIG" ]; then
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::commitlint config $CONFIG does not exist"
+            exit 1
+          fi
+          used=$CONFIG
+          args=(--config "$CONFIG")
+        else
+          # commitlint's own discovery finds every config location it supports, package.json
+          # included. A repo without a config resolves to no extends and no rules.
+          set +e
+          printed=$("$commitlint" --print-config json)
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::commitlint could not load the repo's config, exit code $rc"
+            exit 1
+          fi
+          if [ "$(jq -c '[.extends, .rules] == [[], {}]' <<< "$printed")" = true ]; then
+            used=house
+            args=(--config "$lib/commitlintrc.yml")
+          else
+            used=repo
+            args=()
+          fi
+        fi
+        echo "config=$used" >> "$GITHUB_OUTPUT"
+        log="$RUNNER_TEMP/commitlint.log"
+        set +e
+        "$commitlint" "${args[@]}" --from "$FROM" --to "$TO" --verbose 2>&1 | tee "$log"
+        rc=${PIPESTATUS[0]}
+        set -e
+        if [ "$rc" -eq 0 ]; then
+          echo "commitlint ($used config): every commit in the range passed" >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "commitlint ($used config): failed"
+            echo
+            echo '```'
+            cat "$log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::commitlint found commit messages that are not Conventional Commits; see the job summary"
+        fi
+        exit "$rc"

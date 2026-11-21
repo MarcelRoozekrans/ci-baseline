@@ -1,0 +1,33 @@
+# House commitlint config, used when the calling repo has no commitlint config of its own.
+# Base rules are @commitlint/config-conventional. The types match the changelog sections that
+# release-please reads; bench is the extra type the benchmark repos use.
+extends:
+  - "@commitlint/config-conventional"
+
+rules:
+  type-enum:
+    - 2
+    - always
+    - - bench
+      - build
+      - chore
+      - ci
+      - deps
+      - docs
+      - feat
+      - fix
+      - perf
+      - refactor
+      - revert
+      - style
+      - test
+  # Subjects may start with a proper noun, such as MagicLink.NET or ZeroAlloc.ORM.
+  subject-case:
+    - 0
+    - never
+    - []
+  # Bodies quote error messages, command lines and URLs verbatim; the header cap stays at 100.
+  body-max-line-length:
+    - 0
+    - always
+    - 100

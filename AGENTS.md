@@ -7,14 +7,16 @@ what ships is the YAML on the `v1` tag, plus a few Python and shell helpers unde
 
 ## Layout
 
-- `.github/workflows/baseline.yml` and `history-scan.yml` are the public reusable workflows.
+- `.github/workflows/baseline.yml`, `conventions.yml` and `history-scan.yml` are the public reusable
+  workflows.
   `release-please.yml` and `self-test.yml` run on this repo only.
-- `actions/*` are composite actions. `coverage-gate` and `sbom` are public. `gitleaks`, `nuget-audit`
-  and `trivy` are internal: the workflows call them, and they may change in any release.
-- `lib/` holds the logic the actions call: `coverage_gate.py`, `baseline_lib.py`,
-  `install-pinned.sh` and `check_readme.py`. `tests/` are their unit tests.
+- `actions/*` are composite actions. `coverage-gate` and `sbom` are public. `commitlint`, `gitleaks`,
+  `markdown-links`, `nuget-audit` and `trivy` are internal: the workflows call them, and they may change in any release.
+- `lib/` holds the logic the actions call: `coverage_gate.py`, `baseline_lib.py`, `check_links.py`,
+  `install-pinned.sh` and `check_readme.py`, and `lib/commitlint/` the pinned commitlint with its
+  lockfile and the house config. `tests/` are the unit tests.
 - `fixtures/` are inputs for the self-test, not examples. Most of them are broken on purpose
-  (`dotnet-vulnerable`, `dotnet-nowarn*`, `dotnet-lowcov`, `iac-misconfig`). Do not fix them. Renovate
+  (`dotnet-vulnerable`, `dotnet-nowarn*`, `dotnet-lowcov`, `iac-misconfig`, `markdown-broken`). Do not fix them. Renovate
   ignores them.
 - `.github/actionlint.yaml` ignores `job.workflow_sha` and `workflow_repository` errors until
   actionlint supports them; see issue #3.
