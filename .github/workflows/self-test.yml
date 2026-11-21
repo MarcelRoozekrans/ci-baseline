@@ -312,6 +312,8 @@ jobs:
       solution: fixtures/dotnet-clean/DotnetClean.slnx
       trivy: true
       trivy-path: fixtures/dotnet-clean
+      semgrep: true
+      semgrep-path: fixtures/dotnet-clean
 
   # Every optional check off: each job must still run, report and pass.
   baseline-disabled:
@@ -324,6 +326,7 @@ jobs:
       codeql: false
       dotnet: false
       trivy: false
+      semgrep: false
 
   baseline-disabled-result:
     needs: baseline-disabled
@@ -460,6 +463,65 @@ jobs:
           [ "$MISCONFIG" = failure ] || { echo "::error::misconfig outcome was $MISCONFIG, expected failure"; exit 1; }
           [ "$SKIPDIRS_RESULT" = clean ] || { echo "::error::skip-dirs result was '$SKIPDIRS_RESULT', expected clean"; exit 1; }
           [ "$NOSKIPDIRS_RESULT" = findings ] || { echo "::error::no-skip-dirs result was '$NOSKIPDIRS_RESULT', expected findings"; exit 1; }
+
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: clean
+        id: clean
+        uses: ./actions/semgrep
+        with:
+          path: .github
+      - name: injection
+        id: injection
+        continue-on-error: true
+        uses: ./actions/semgrep
+        with:
+          path: fixtures/gha-injection
+      - name: skip-dirs
+        id: skipdirs
+        uses: ./actions/semgrep
+        with:
+          path: fixtures
+          skip-dirs: gha-injection
+      # Only the secrets rules: the injection fixture must pass, so no workflow rule is left over
+      # from the earlier calls in this job.
+      - name: secrets-rules-only
+        id: secretsonly
+        uses: ./actions/semgrep
+        with:
+          path: fixtures/gha-injection
+          rules: generic/secrets/security
+      - name: unknown-rules
+        id: badrules
+        continue-on-error: true
+        uses: ./actions/semgrep
+        with:
+          path: .github
+          rules: no/such/rules
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outputs.result }}
+          INJECTION: ${{ steps.injection.outputs.result }}
+          INJECTION_OUTCOME: ${{ steps.injection.outcome }}
+          SKIPDIRS: ${{ steps.skipdirs.outputs.result }}
+          SECRETSONLY: ${{ steps.secretsonly.outputs.result }}
+          BADRULES: ${{ steps.badrules.outcome }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean result" "$CLEAN" clean
+          expect "injection result" "$INJECTION" findings
+          expect "injection outcome" "$INJECTION_OUTCOME" failure
+          expect "skip-dirs result" "$SKIPDIRS" clean
+          expect "secrets-rules-only result" "$SECRETSONLY" clean
+          expect "unknown-rules outcome" "$BADRULES" failure
+          exit "$fail"
 
   coverage-gate:
     runs-on: ubuntu-latest

@@ -39,6 +39,18 @@ on:
         description: Container image that Trivy also scans. Empty means no image scan.
         type: string
         default: ""
+      semgrep:
+        description: Run Semgrep with rules from a pinned commit of semgrep-rules.
+        type: boolean
+        default: false
+      semgrep-path:
+        description: Path that Semgrep scans.
+        type: string
+        default: .
+      semgrep-rules:
+        description: Space separated directories of semgrep-rules whose rules Semgrep uses.
+        type: string
+        default: yaml/github-actions/security generic/secrets/security
 
 permissions:
   contents: read
@@ -282,3 +294,48 @@ jobs:
           image: ${{ inputs.trivy-image }}
           # The ci-baseline checkout holds deliberately failing fixtures.
           skip-dirs: "**/.ci-baseline"
+
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse pull_request_target
+        if: github.event_name == 'pull_request_target'
+        run: |
+          echo "baseline.yml does not run on pull_request_target. Call it on pull_request." >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::baseline.yml does not run on pull_request_target: that event runs with the base branch's secrets and a write token, so checking out and building pull request code there is unsafe. Call baseline.yml on pull_request instead."
+          exit 1
+      - name: Semgrep disabled
+        if: ${{ !inputs.semgrep }}
+        run: echo "Semgrep disabled by caller input" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.semgrep
+        with:
+          persist-credentials: false
+      # The internal actions come from this workflow's own repository and commit, the
+      # ones the caller's `uses:` resolved to, so a caller on a tag or a SHA gets
+      # matching actions.
+      - name: Check the called workflow's identity
+        if: inputs.semgrep
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [ -z "$WORKFLOW_REPOSITORY" ] || [ -z "$WORKFLOW_SHA" ]; then
+            echo "::error::job.workflow_repository is '$WORKFLOW_REPOSITORY' and job.workflow_sha is '$WORKFLOW_SHA'; both must be set to check out the ci-baseline actions at the called workflow's commit"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: inputs.semgrep
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-baseline
+          persist-credentials: false
+      - uses: ./.ci-baseline/actions/semgrep
+        if: inputs.semgrep
+        with:
+          path: ${{ inputs.semgrep-path }}
+          rules: ${{ inputs.semgrep-rules }}
+          # The ci-baseline checkout holds deliberately failing fixtures.
+          skip-dirs: .ci-baseline

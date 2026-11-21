@@ -14,6 +14,7 @@ Reusable GitHub Actions workflows and composite actions that give .NET repositor
 | SBOM | your release job | a failed CycloneDX run, or a failed upload to the release |
 | Full-history gitleaks | by hand, before a repo goes public | a secret anywhere in any ref |
 | Trivy | `baseline.yml`, off by default | a HIGH or CRITICAL finding in the files or in one image |
+| Semgrep | `baseline.yml`, off by default | any finding of the selected semgrep-rules, by default script injection and other risks in GitHub Actions workflows, and secrets |
 | commitlint | `conventions.yml`, pull requests | a commit the pull request adds that is not a Conventional Commit |
 | Markdown links | `conventions.yml` | a relative link or heading anchor in a Markdown file that does not resolve |
 
@@ -196,7 +197,7 @@ Add these as required status checks:
 
 With another value in `languages` the CodeQL check is named `baseline / codeql (<language>)`, one per language.
 
-Do not require `baseline / prepare` or `baseline / trivy`. `prepare` only builds the CodeQL language list. `trivy` always reports, and says in its summary when it is off.
+Do not require `baseline / prepare`, `baseline / trivy` or `baseline / semgrep` unless you turned them on. `prepare` only builds the CodeQL language list. `trivy` and `semgrep` always report, and say in their summary when they are off.
 
 A required check must report on every pull request. That is why the gitleaks job passes with a note on events that are not pull requests, and why a disabled check still runs and writes the reason into its summary.
 
@@ -247,6 +248,9 @@ A repo whose commitlint config loads no package other than `@commitlint/config-c
 | `trivy` | `false` | Run Trivy on the files, and on `trivy-image` when set. Fails on HIGH and CRITICAL. |
 | `trivy-path` | `.` | Path that `trivy fs` scans. |
 | `trivy-image` | empty | Container image that Trivy also scans. Empty means no image scan. |
+| `semgrep` | `false` | Run Semgrep. Fails on any finding. See [Semgrep rules](#semgrep-rules). |
+| `semgrep-path` | `.` | Path that Semgrep scans. |
+| `semgrep-rules` | `yaml/github-actions/security generic/secrets/security` | Space-separated directories of semgrep-rules whose rules Semgrep uses. |
 
 ### history-scan.yml
 
@@ -337,6 +341,14 @@ regex = '''\b[a-z0-9-]+\.internal\.example\.com\b'''
 
 Without `useDefault = true` a gitleaks config replaces the default rules instead of adding to them, and the scan would no longer find tokens or keys. Both workflows fail with an error when the config in use does not extend the defaults.
 
+### Semgrep rules
+
+Semgrep runs with rules from [semgrep-rules](https://github.com/semgrep/semgrep-rules) at one fixed commit, fetched when the job runs and not copied into this repo. Rules from the Semgrep registry are not versioned, so a new rule there could fail every caller at once; with a fixed commit a new rule reaches callers only through a ci-baseline release. Semgrep itself is installed from `lib/semgrep/requirements.txt`, with a hash for every package.
+
+The default rules cover script injection and other risks in GitHub Actions workflows, and secrets in any file. One workflow rule is strict: `github-actions-mutable-action-tag` fails on an action referenced by tag, such as `actions/checkout@v7`, rather than by commit SHA. Turn Semgrep on once a repo pins its actions by SHA, or choose other directories with `semgrep-rules`.
+
+The rules are under the [Semgrep Rules License v1.0](https://semgrep.dev/legal/rules-license).
+
 ### CodeQL off
 
 A private repo without GitHub Code Security cannot upload CodeQL results. Set `codeql: false` in the `with:` block of the baseline job. The job keeps its name and passes, and its summary says CodeQL is off. Keep the three permissions from step 1 anyway.
@@ -389,4 +401,4 @@ The gate runs on Linux only in v1. Run it in a Linux job.
 
 ## Checks on this repo
 
-`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, calls it a second time with CodeQL, NuGetAudit and Trivy turned off and expects that call to pass, calls `conventions.yml` on its own pull request commits and Markdown, calls it again with both checks off, and runs each internal action on a fixture or a commit that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py` and `lib/check_links.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.
+`self-test.yml` runs on every pull request. It runs actionlint, calls `baseline.yml` on `fixtures/dotnet-clean`, calls it a second time with CodeQL, NuGetAudit, Trivy and Semgrep turned off and expects that call to pass, calls `conventions.yml` on its own pull request commits and Markdown, calls it again with both checks off, and runs each internal action on a fixture or a commit that must fail it. `python3 -m unittest discover -s tests -t .` runs the unit tests, including `lib/check_readme.py` and `lib/check_links.py`. That script fails when a table in this README lists different inputs than the YAML, when the codecov block above differs from its fixture, or when a link from a workflow or action points to a heading this README does not have.
