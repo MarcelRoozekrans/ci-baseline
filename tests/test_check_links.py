@@ -124,6 +124,17 @@ class ProblemsTest(unittest.TestCase):
         write(self.root, "README.md", '[doc](README.md "unfinished [broken](missing.md)\n')
         self.assertEqual(check_links.problems(self.root), ["README.md:1: missing.md does not exist"])
 
+    def test_equals_line_without_paragraph_is_text(self):
+        self.assertEqual(check_links.anchors("===\nTitle\n---\n"), {"-title"})
+
+    def test_escaped_delimiters_inside_titles(self):
+        write(
+            self.root,
+            "README.md",
+            '[a](README.md "say \\"hi\\" [x](gone.md)") [b](README.md \'it\\\'s [y](gone.md)\') [c](README.md (p \\) [z](gone.md)))\n',
+        )
+        self.assertEqual(check_links.problems(self.root), [])
+
     def test_thematic_break_before_a_setext_heading(self):
         self.assertEqual(check_links.anchors("---\nTitle\n---\n"), {"title"})
 

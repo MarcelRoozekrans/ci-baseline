@@ -69,11 +69,11 @@ def anchors(content):
         if match:
             heading = match.group(1)
             paragraph = []
-        elif SETEXT_UNDERLINE.match(line):
-            # An underline below a paragraph makes it a heading; without one it is a thematic break.
-            if paragraph:
-                heading = " ".join(text.strip() for text in paragraph)
+        elif SETEXT_UNDERLINE.match(line) and paragraph:
+            heading = " ".join(text.strip() for text in paragraph)
             paragraph = []
+        elif SETEXT_UNDERLINE.match(line) and line.strip().startswith("-"):
+            paragraph = []  # a thematic break, not paragraph text
         elif line.strip():
             paragraph.append(line)
         else:
@@ -98,8 +98,10 @@ def _skip_title(line, start):
         i += 1
     if i < len(line) and line[i] in "\"'(":
         closing = ")" if line[i] == "(" else line[i]
-        end = line.find(closing, i + 1)
-        if end == -1:
+        end = i + 1
+        while end < len(line) and line[end] != closing:
+            end += 2 if line[end] == "\\" else 1
+        if end >= len(line):
             return start
         i = end + 1
         while i < len(line) and line[i] in " \t":
