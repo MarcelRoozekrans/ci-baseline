@@ -117,8 +117,15 @@ class ProblemsTest(unittest.TestCase):
         self.assertEqual(check_links.anchors("First\nSecond\n---\n"), {"first-second"})
 
     def test_links_in_titles_are_not_checked(self):
-        write(self.root, "README.md", '[doc](README.md "example [x](missing.md)") [d2](<README.md> (a [y](gone.md)))\n')
+        write(self.root, "README.md", "[doc](README.md \"example [x](missing.md)\") [d2](<README.md> 'a [y](gone.md)')\n")
         self.assertEqual(check_links.problems(self.root), [])
+
+    def test_links_after_an_unfinished_title_are_checked(self):
+        write(self.root, "README.md", '[doc](README.md "unfinished [broken](missing.md)\n')
+        self.assertEqual(check_links.problems(self.root), ["README.md:1: missing.md does not exist"])
+
+    def test_thematic_break_before_a_setext_heading(self):
+        self.assertEqual(check_links.anchors("---\nTitle\n---\n"), {"title"})
 
     def test_thematic_break_after_blank_line_is_not_a_heading(self):
         self.assertEqual(check_links.anchors("Text\n\n---\n"), set())

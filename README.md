@@ -224,13 +224,13 @@ jobs:
     uses: MarcelRoozekrans/ci-baseline/.github/workflows/conventions.yml@v1
 ```
 
-commitlint checks the commits a pull request adds, with the repo's own commitlint config when commitlint finds one (any location commitlint supports, `package.json` included), and otherwise with the house config in `lib/commitlint/commitlintrc.yml`: `@commitlint/config-conventional` with the changelog types release-please reads, plus `bench`. commitlint and its shared configs are installed from a lockfile, so their versions only change with a ci-baseline release. The pinned `@commitlint/config-conventional` is linked into the repo's `node_modules` when the repo does not have it. The job installs nothing else, so a repo whose config extends another shared config or plugin keeps its own commitlint job and calls `conventions.yml` with `commitlint: false`.
+commitlint checks the commits a pull request adds, with the repo's own commitlint config when commitlint finds one (any location commitlint supports, `package.json` included), and otherwise with the house config in `lib/commitlint/commitlintrc.yml`: `@commitlint/config-conventional` with the changelog types release-please reads, plus `bench`. commitlint and its shared configs are installed from a lockfile, so their versions only change with a ci-baseline release. The pinned `@commitlint/config-conventional` is linked into the repo's `node_modules` when the repo does not have it. The job installs nothing else, so a repo whose config loads another package, as a shared config, parser preset, plugin or formatter, keeps its own commitlint job and calls `conventions.yml` with `commitlint: false`.
 
 The link check reads every `*.md` file outside `.git` and `node_modules`. It checks relative links, images and reference definitions, and `#anchors` against the headings of the target file. Absolute URLs are not checked: they need the network and would make the check flaky.
 
 Add `conventions / commitlint` and `conventions / markdown-links` as required status checks. Both report on every event: commitlint passes with a note outside pull requests, and a check turned off by its input says so in its summary.
 
-A repo whose commitlint config extends only `@commitlint/config-conventional` can drop its own commitlint job once it calls `conventions.yml`.
+A repo whose commitlint config loads no package other than `@commitlint/config-conventional`, in `extends`, `parserPreset`, `plugins` or `formatter`, can drop its own commitlint job once it calls `conventions.yml`. Any other repo keeps its own job.
 
 ## Inputs
 
