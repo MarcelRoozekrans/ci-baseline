@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/MarcelRoozekrans/ci-baseline/compare/v1.0.0...v1.1.0) (2026-11-21)
+
+
+### Features
+
+* add conventions.yml with shared commitlint and a Markdown link check ([#9](https://github.com/MarcelRoozekrans/ci-baseline/issues/9)) ([d3b068c](https://github.com/MarcelRoozekrans/ci-baseline/commit/d3b068cd20551b06c9fb2e2bc3c40aab864cdc75))
+
 ## 1.0.0 (2026-11-03)
 
 
