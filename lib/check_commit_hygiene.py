@@ -6,12 +6,15 @@ Usage: check_commit_hygiene.py --from SHA --to SHA [--pr-body FILE] [--repo DIR]
 Every commit in from..to is checked for:
 - an AI co-author trailer, such as `Co-Authored-By: Claude <noreply@anthropic.com>`;
 - an AI session link, such as https://claude.ai/code/session_...;
-- an AI "Generated with" signature line;
-- a nested parenthesis in the body, outside fenced code blocks. release-please cannot parse a
-  commit with one and drops it from the changelog while its workflow still succeeds.
+- an AI "Generated with" signature line.
 
-The pull request body is checked for session links only: a squash merge copies commit bodies,
-not the pull request body, into history, and some tools append their own footer to the body.
+Whether release-please can parse each commit is checked separately, by check_release_parse.mjs with
+release-please's own parser.
+
+The pull request body is checked for session links only. A squash merge whose default message is the
+commit messages copies commit bodies, not the pull request body, into history. A repository whose
+squash default is the pull request title and description puts the body into history too, so it
+should use the commit messages as its default when it relies on this check.
 
 Exit code 1 lists every problem as a ::error:: annotation; 2 means git could not read the range.
 """
@@ -19,36 +22,17 @@ import re
 import subprocess
 import sys
 
+# Matched on the address, not the name, so a person who happens to be called Claude passes.
 CO_AUTHOR = re.compile(
-    r"^\s*co-authored-by:.*(claude|anthropic\.com|copilot|openai|chatgpt|codex|gemini|cursor)",
+    r"^\s*co-authored-by:[^<]*<[^>]*("
+    r"@anthropic\.com|@openai\.com|@cursor\.(?:com|sh)"
+    r"|\+copilot@users\.noreply\.github\.com|copilot@github\.com"
+    r"|\+(?:claude|devin-ai-integration|openai-codex)\[bot\]@users\.noreply\.github\.com"
+    r")>",
     re.IGNORECASE,
 )
 SESSION_LINK = re.compile(r"https?://(?:www\.)?claude\.ai/code/session_\S*", re.IGNORECASE)
 SIGNATURE = re.compile(r"generated (?:with|by) \[?(?:claude code|copilot|codex|cursor)\]?", re.IGNORECASE)
-FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
-
-
-def nested_parenthesis(body):
-    """The 1-based line number of the first nested '(' in a commit body, outside fences, or None."""
-    depth = 0
-    fence = None
-    for number, line in enumerate(body.splitlines(), start=1):
-        match = FENCE.match(line)
-        if fence is None and match:
-            fence = match.group(1)[0] * len(match.group(1))
-            continue
-        if fence is not None:
-            if line.strip().startswith(fence):
-                fence = None
-            continue
-        for char in line:
-            if char == "(":
-                if depth >= 1:
-                    return number
-                depth += 1
-            elif char == ")" and depth > 0:
-                depth -= 1
-    return None
 
 
 def message_problems(sha, message):
@@ -63,13 +47,6 @@ def message_problems(sha, message):
             bad.append("%s line %d: AI session link" % (short, number))
         if SIGNATURE.search(line):
             bad.append("%s line %d: AI signature line: %s" % (short, number, line.strip()))
-    body = "\n".join(lines[2:]) if len(lines) > 2 else ""
-    nested = nested_parenthesis(body)
-    if nested is not None:
-        bad.append(
-            "%s line %d: nested parenthesis in the body; release-please would drop this commit"
-            % (short, nested + 2)
-        )
     return bad
 
 

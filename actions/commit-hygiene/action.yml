@@ -1,5 +1,5 @@
 name: commit-hygiene
-description: Check a range of commit messages for AI co-author trailers, AI session links, AI signature lines and nested parentheses in the body, and a pull request body for AI session links.
+description: Check a range of commit messages for AI co-author trailers, AI session links and AI signature lines, check that release-please's parser accepts each one, and check a pull request body for AI session links. Needs Node.js on the runner.
 inputs:
   from:
     description: Commit after which the range starts, for example the pull request base.
@@ -13,6 +13,11 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install the release-please parser from the lockfile
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: npm ci --prefix "$ACTION_PATH/../../lib/commitlint" --ignore-scripts --no-audit --no-fund --loglevel=error
     - name: Check the commits
       shell: bash
       env:
@@ -32,7 +37,11 @@ runs:
         set +e
         python3 "$ACTION_PATH/../../lib/check_commit_hygiene.py" "${args[@]}" 2>&1 | tee "$log"
         rc=${PIPESTATUS[0]}
+        node "$ACTION_PATH/../../lib/check_release_parse.mjs" --from "$FROM" --to "$TO" 2>&1 | tee -a "$log"
+        parse=${PIPESTATUS[0]}
         set -e
+        # 2 (could not read the range) beats 1 (problems found) beats 0.
+        if [ "$parse" -gt "$rc" ]; then rc=$parse; fi
         if [ "$rc" -eq 0 ]; then
           echo "commit-hygiene: passed" >> "$GITHUB_STEP_SUMMARY"
         else

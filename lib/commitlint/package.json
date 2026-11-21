@@ -1,9 +1,10 @@
 {
   "name": "ci-baseline-commitlint",
   "private": true,
-  "description": "Pinned commitlint for the conventions workflow. Installed with npm ci from the lockfile.",
+  "description": "Pinned commitlint, and the commit parser release-please uses, for the conventions workflow. Installed with npm ci from the lockfile.",
   "dependencies": {
     "@commitlint/cli": "21.2.4",
-    "@commitlint/config-conventional": "21.2.4"
+    "@commitlint/config-conventional": "21.2.4",
+    "@conventional-commits/parser": "0.4.1"
   }
 }

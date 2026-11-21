@@ -15,7 +15,7 @@ on:
         type: string
         default: ""
       commit-hygiene:
-        description: Check the commits a pull request adds for AI co-author trailers, AI session links, AI signature lines and nested parentheses in the body.
+        description: Check the commits a pull request adds for AI co-author trailers, AI session links and AI signature lines, and that release-please can parse them.
         type: boolean
         default: false
       markdown-links:
@@ -126,6 +126,10 @@ jobs:
           ref: ${{ job.workflow_sha }}
           path: .ci-baseline
           persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: inputs.commit-hygiene && github.event_name == 'pull_request'
+        with:
+          node-version: 24
       - uses: ./.ci-baseline/actions/commit-hygiene
         if: inputs.commit-hygiene && github.event_name == 'pull_request'
         with:
