@@ -65,8 +65,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - name: Unit tests
         run: python3 -m unittest discover -s tests -t .
+      - name: Node unit tests
+        if: ${{ !cancelled() }}
+        run: |
+          npm ci --prefix lib/commitlint --ignore-scripts --no-audit --no-fund --loglevel=error
+          node --test tests/*.test.mjs
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -261,6 +269,75 @@ jobs:
           expect "missing-config outcome" "$MISSING" failure
           exit "$fail"
 
+  commit-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Add commits on top of the checkout
+        id: commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          g() { git -c user.name=selftest -c user.email=selftest@example.com "$@"; }
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          g commit -q --allow-empty -m "docs: a clean commit" -m "A body with one (level) of parentheses."
+          echo "good=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          g commit -q --allow-empty -m "fix: a bad commit" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+          echo "bad=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          g reset -q --hard "$(git rev-parse HEAD~1)"
+          g commit -q --allow-empty -m "fix: an unparseable commit" -m "Foo(Bar(1)) starts this line."
+          echo "unparseable=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: clean
+        id: clean
+        uses: ./actions/commit-hygiene
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+          pr-body: A body without links.
+      - name: bad-commit
+        id: badcommit
+        continue-on-error: true
+        uses: ./actions/commit-hygiene
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.bad }}
+      - name: unparseable-commit
+        id: unparseable
+        continue-on-error: true
+        uses: ./actions/commit-hygiene
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.unparseable }}
+      - name: session-link-in-body
+        id: badbody
+        continue-on-error: true
+        uses: ./actions/commit-hygiene
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
+          pr-body: "See https://claude.ai/code/session_0123"
+      - name: Assert outcomes
+        if: always()
+        shell: bash
+        env:
+          CLEAN: ${{ steps.clean.outcome }}
+          BADCOMMIT: ${{ steps.badcommit.outcome }}
+          BADBODY: ${{ steps.badbody.outcome }}
+          UNPARSEABLE: ${{ steps.unparseable.outcome }}
+        run: |
+          fail=0
+          expect() { # name actual expected
+            if [ "$2" != "$3" ]; then echo "::error::$1 was '$2', expected '$3'"; fail=1; fi
+          }
+          expect "clean outcome" "$CLEAN" success
+          expect "bad-commit outcome" "$BADCOMMIT" failure
+          expect "session-link-in-body outcome" "$BADBODY" failure
+          expect "unparseable-commit outcome" "$UNPARSEABLE" failure
+          exit "$fail"
+
   markdown-links:
     runs-on: ubuntu-latest
     steps:
@@ -291,12 +368,14 @@ jobs:
     uses: ./.github/workflows/conventions.yml
     with:
       markdown-exclude: fixtures/markdown-broken
+      commit-hygiene: true
 
   # Every check off: each job must still run, report and pass.
   conventions-disabled:
     uses: ./.github/workflows/conventions.yml
     with:
       commitlint: false
+      commit-hygiene: false
       markdown-links: false
 
   history-clean:

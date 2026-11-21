@@ -10,11 +10,11 @@ what ships is the YAML on the `v1` tag, plus a few Python and shell helpers unde
 - `.github/workflows/baseline.yml`, `conventions.yml` and `history-scan.yml` are the public reusable
   workflows.
   `release-please.yml` and `self-test.yml` run on this repo only.
-- `actions/*` are composite actions. `coverage-gate` and `sbom` are public. `commitlint`, `gitleaks`,
+- `actions/*` are composite actions. `coverage-gate` and `sbom` are public. `commit-hygiene`, `commitlint`, `gitleaks`,
   `markdown-links`, `nuget-audit`, `semgrep` and `trivy` are internal: the workflows call them, and they may change in any release.
-- `lib/` holds the logic the actions call: `coverage_gate.py`, `baseline_lib.py`, `check_links.py`,
+- `lib/` holds the logic the actions call: `coverage_gate.py`, `baseline_lib.py`, `check_commit_hygiene.py`, `check_release_parse.mjs`, `check_links.py`,
   `install-pinned.sh` and `check_readme.py`, and `lib/commitlint/` the pinned commitlint with its
-  lockfile and the house config, and `lib/semgrep/` the hashed requirements for Semgrep. `tests/`
+  lockfile, the house config and the parser release-please uses, and `lib/semgrep/` the hashed requirements for Semgrep. `tests/`
   are the unit tests.
 - `fixtures/` are inputs for the self-test, not examples. Most of them are broken on purpose
   (`dotnet-vulnerable`, `dotnet-nowarn*`, `dotnet-lowcov`, `iac-misconfig`, `markdown-broken`,

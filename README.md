@@ -16,6 +16,7 @@ Reusable GitHub Actions workflows and composite actions that give .NET repositor
 | Trivy | `baseline.yml`, off by default | a HIGH or CRITICAL finding in the files or in one image |
 | Semgrep | `baseline.yml`, off by default | any finding of the selected semgrep-rules, by default script injection and other risks in GitHub Actions workflows, and secrets |
 | commitlint | `conventions.yml`, pull requests | a commit the pull request adds that is not a Conventional Commit |
+| Commit hygiene | `conventions.yml`, pull requests, off by default | an AI co-author trailer, AI session link or AI signature line in a commit the pull request adds, a commit release-please cannot parse, or an AI session link in the pull request body |
 | Markdown links | `conventions.yml` | a relative link or heading anchor in a Markdown file that does not resolve |
 
 ## Versioning
@@ -229,7 +230,7 @@ commitlint checks the commits a pull request adds, with the repo's own commitlin
 
 The link check reads every `*.md` file outside `.git` and `node_modules`. It checks relative links, images and reference definitions, and `#anchors` against the headings of the target file. Absolute URLs are not checked: they need the network and would make the check flaky.
 
-Add `conventions / commitlint` and `conventions / markdown-links` as required status checks. Both report on every event: commitlint passes with a note outside pull requests, and a check turned off by its input says so in its summary.
+Add `conventions / commitlint` and `conventions / markdown-links` as required status checks, and `conventions / commit-hygiene` when you turn it on. Each commit is parsed with `@conventional-commits/parser`, the parser release-please uses, because release-please drops a commit it cannot parse from the changelog without failing. The usual cause is a body line that starts with a word followed by a nested parenthesis, such as `Foo(Bar(1))`; a fenced code block does not protect it. AI co-authors are recognised by their address, not their name. The pull request body is checked for session links only, which fits a repository whose squash merges use the commit messages as the default message. With the pull request title and description as the default, the body reaches history too; such a repository should change that default. To check a body edit, add `types: [opened, synchronize, reopened, edited]` to the caller's `pull_request` trigger. All three report on every event: commitlint passes with a note outside pull requests, and a check turned off by its input says so in its summary.
 
 A repo whose commitlint config loads no package other than `@commitlint/config-conventional`, in `extends`, `parserPreset`, `plugins` or `formatter`, can drop its own commitlint job once it calls `conventions.yml`. Any other repo keeps its own job.
 
@@ -262,6 +263,7 @@ A repo whose commitlint config loads no package other than `@commitlint/config-c
 | --- | --- | --- |
 | `commitlint` | `true` | Run commitlint on the commits a pull request adds. |
 | `commitlint-config` | empty | Path of the repo's commitlint config. Empty means the repo's own config if it has one, otherwise the house config. |
+| `commit-hygiene` | `false` | Check the commits a pull request adds for AI co-author trailers, AI session links and AI signature lines, and that release-please can parse them; check the pull request body for AI session links. |
 | `markdown-links` | `true` | Check the relative links in the repo's Markdown files. |
 | `markdown-exclude` | empty | Space-separated directories whose Markdown files the link check leaves out, for example fixtures that are broken on purpose. |
 
