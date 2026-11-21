@@ -36,6 +36,7 @@ runs:
     # Rules are fetched at a fixed commit rather than from the registry, so a new upstream rule
     # reaches callers only through a ci-baseline release. They are not copied into this repo.
     - name: Fetch the pinned rules
+      id: rules
       shell: bash
       env:
         RULES_REPO: https://github.com/semgrep/semgrep-rules
@@ -43,8 +44,9 @@ runs:
         RULES: ${{ inputs.rules }}
       run: |
         set -euo pipefail
-        src="$RUNNER_TEMP/semgrep-rules-src"
-        dest="$RUNNER_TEMP/semgrep-rules"
+        # Fresh directories per call, so a later call in the same job uses only its own rules.
+        src=$(mktemp -d "$RUNNER_TEMP/semgrep-rules-src-XXXXXX")
+        dest=$(mktemp -d "$RUNNER_TEMP/semgrep-rules-XXXXXX")
         git init -q "$src"
         git -C "$src" fetch -q --depth 1 "$RULES_REPO" "$RULES_SHA"
         got=$(git -C "$src" rev-parse FETCH_HEAD)
@@ -53,7 +55,6 @@ runs:
           exit 1
         fi
         git -C "$src" -c advice.detachedHead=false checkout -q FETCH_HEAD
-        mkdir -p "$dest"
         set -f
         for dir in $RULES; do
           set +f
@@ -71,12 +72,14 @@ runs:
           exit 1
         fi
         echo "Semgrep rules: $count from semgrep-rules@$RULES_SHA" >> "$GITHUB_STEP_SUMMARY"
+        echo "dir=$dest" >> "$GITHUB_OUTPUT"
     - name: Run Semgrep
       id: scan
       shell: bash
       env:
         SCAN_PATH: ${{ inputs.path }}
         SKIP_DIRS: ${{ inputs.skip-dirs }}
+        RULES_DIR: ${{ steps.rules.outputs.dir }}
       run: |
         set -uo pipefail
         args=()
@@ -86,7 +89,7 @@ runs:
         log="$RUNNER_TEMP/semgrep.log"
         set +e
         "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --metrics=off --disable-version-check --error --quiet \
-          --config "$RUNNER_TEMP/semgrep-rules" "${args[@]}" -- "$SCAN_PATH" > "$log" 2>&1
+          --config "$RULES_DIR" "${args[@]}" -- "$SCAN_PATH" > "$log" 2>&1
         rc=$?
         set -e
         cat "$log"

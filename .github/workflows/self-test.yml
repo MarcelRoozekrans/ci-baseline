@@ -485,6 +485,14 @@ jobs:
         with:
           path: fixtures
           skip-dirs: gha-injection
+      # Only the secrets rules: the injection fixture must pass, so no workflow rule is left over
+      # from the earlier calls in this job.
+      - name: secrets-rules-only
+        id: secretsonly
+        uses: ./actions/semgrep
+        with:
+          path: fixtures/gha-injection
+          rules: generic/secrets/security
       - name: unknown-rules
         id: badrules
         continue-on-error: true
@@ -500,6 +508,7 @@ jobs:
           INJECTION: ${{ steps.injection.outputs.result }}
           INJECTION_OUTCOME: ${{ steps.injection.outcome }}
           SKIPDIRS: ${{ steps.skipdirs.outputs.result }}
+          SECRETSONLY: ${{ steps.secretsonly.outputs.result }}
           BADRULES: ${{ steps.badrules.outcome }}
         run: |
           fail=0
@@ -510,6 +519,7 @@ jobs:
           expect "injection result" "$INJECTION" findings
           expect "injection outcome" "$INJECTION_OUTCOME" failure
           expect "skip-dirs result" "$SKIPDIRS" clean
+          expect "secrets-rules-only result" "$SECRETSONLY" clean
           expect "unknown-rules outcome" "$BADRULES" failure
           exit "$fail"
 
