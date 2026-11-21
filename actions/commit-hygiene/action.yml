@@ -1,0 +1,47 @@
+name: commit-hygiene
+description: Check a range of commit messages for AI co-author trailers, AI session links, AI signature lines and nested parentheses in the body, and a pull request body for AI session links.
+inputs:
+  from:
+    description: Commit after which the range starts, for example the pull request base.
+    required: true
+  to:
+    description: Last commit of the range, for example the pull request head.
+    required: true
+  pr-body:
+    description: Text of the pull request body to check for session links. Empty means none.
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Check the commits
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        FROM: ${{ inputs.from }}
+        TO: ${{ inputs.to }}
+        PR_BODY: ${{ inputs.pr-body }}
+      run: |
+        set -uo pipefail
+        args=(--from "$FROM" --to "$TO")
+        if [ -n "$PR_BODY" ]; then
+          body="$RUNNER_TEMP/pr-body.md"
+          printf '%s' "$PR_BODY" > "$body"
+          args+=(--pr-body "$body")
+        fi
+        log="$RUNNER_TEMP/commit-hygiene.log"
+        set +e
+        python3 "$ACTION_PATH/../../lib/check_commit_hygiene.py" "${args[@]}" 2>&1 | tee "$log"
+        rc=${PIPESTATUS[0]}
+        set -e
+        if [ "$rc" -eq 0 ]; then
+          echo "commit-hygiene: passed" >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "commit-hygiene: failed. Reword the commits with git rebase and force-push the branch, or edit the pull request body."
+            echo
+            echo '```'
+            sed 's/^::error:://' "$log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit "$rc"
