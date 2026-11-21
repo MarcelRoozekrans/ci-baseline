@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/MarcelRoozekrans/ci-baseline/compare/v1.2.0...v1.3.0) (2026-11-21)
+
+
+### Features
+
+* add an opt-in commit hygiene check to conventions.yml ([#13](https://github.com/MarcelRoozekrans/ci-baseline/issues/13)) ([7e2e372](https://github.com/MarcelRoozekrans/ci-baseline/commit/7e2e372310f06c316f6da6303361f24b2928cb8a))
+
 ## [1.2.0](https://github.com/MarcelRoozekrans/ci-baseline/compare/v1.1.0...v1.2.0) (2026-11-21)
 
 
