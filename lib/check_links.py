@@ -56,24 +56,26 @@ def anchors(content):
     """Every heading anchor in a Markdown file, with GitHub's -1, -2 suffixes for repeats."""
     found = set()
     seen = {}
-    previous = None  # (line number, text) of the previous line, for Setext headings
+    paragraph = []  # consecutive text lines since the last blank line, for Setext headings
+    last_number = None
     for number, line in text_lines(content, keep_code_spans=True):
+        if last_number is not None and number != last_number + 1:
+            paragraph = []  # a fenced block sat in between
+        last_number = number
         for name in HTML_ANCHOR.findall(line):
             found.add(name.lower())
         heading = None
         match = HEADING.match(line)
         if match:
             heading = match.group(1)
-        elif (
-            SETEXT_UNDERLINE.match(line)
-            and previous is not None
-            and previous[0] == number - 1
-            and previous[1].strip()
-            and not HEADING.match(previous[1])
-            and not SETEXT_UNDERLINE.match(previous[1])
-        ):
-            heading = previous[1].strip()
-        previous = (number, line)
+            paragraph = []
+        elif SETEXT_UNDERLINE.match(line) and paragraph:
+            heading = " ".join(text.strip() for text in paragraph)
+            paragraph = []
+        elif line.strip():
+            paragraph.append(line)
+        else:
+            paragraph = []
         if heading is None:
             continue
         base = slug(heading)
@@ -83,17 +85,36 @@ def anchors(content):
     return found
 
 
-def destination(line, start):
-    """The link destination that starts at line[start], just after "](", or None.
+def _skip_title(line, i):
+    """The index just past the ")" that closes a link, after an optional title at line[i]."""
+    while i < len(line) and line[i] in " \t":
+        i += 1
+    if i < len(line) and line[i] in "\"'(":
+        closing = ")" if line[i] == "(" else line[i]
+        end = line.find(closing, i + 1)
+        if end == -1:
+            return len(line)
+        i = end + 1
+        while i < len(line) and line[i] in " \t":
+            i += 1
+    return i + 1 if i < len(line) and line[i] == ")" else i
 
-    Handles <...> destinations, balanced parentheses such as docs/a(b).md, and an optional title.
+
+def destination(line, start):
+    """The link destination that starts at line[start], just after "](", and the index after the
+    link's closing ")", as (target or None, end).
+
+    Handles <...> destinations, balanced parentheses such as docs/a(b).md, and an optional title,
+    whose text is not scanned for links.
     """
     i = start
     while i < len(line) and line[i] in " \t":
         i += 1
     if i < len(line) and line[i] == "<":
         end = line.find(">", i + 1)
-        return line[i + 1 : end] if end != -1 else None
+        if end == -1:
+            return None, i + 1
+        return line[i + 1 : end], _skip_title(line, end + 1)
     depth = 0
     j = i
     while j < len(line):
@@ -110,7 +131,7 @@ def destination(line, start):
                 break
             depth -= 1
         j += 1
-    return line[i:j] if j > i else None
+    return (line[i:j] if j > i else None), _skip_title(line, j)
 
 
 def targets(content):
@@ -121,11 +142,12 @@ def targets(content):
     for number, line in text_lines(content):
         position = line.find("](")
         while position != -1:
+            end = position + 2
             if "[" in line[:position]:
-                target = destination(line, position + 2)
+                target, end = destination(line, position + 2)
                 if target:
                     yield number, target
-            position = line.find("](", position + 2)
+            position = line.find("](", max(end, position + 2))
         match = REFERENCE.match(line)
         if match:
             yield number, match.group(1)

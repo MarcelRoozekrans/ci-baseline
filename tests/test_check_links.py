@@ -113,6 +113,13 @@ class ProblemsTest(unittest.TestCase):
         write(self.root, "README.md", "Usage\n=====\n\nMore\n---\n\n[a](#usage) [b](#more)\n")
         self.assertEqual(check_links.problems(self.root), [])
 
+    def test_multi_line_setext_heading(self):
+        self.assertEqual(check_links.anchors("First\nSecond\n---\n"), {"first-second"})
+
+    def test_links_in_titles_are_not_checked(self):
+        write(self.root, "README.md", '[doc](README.md "example [x](missing.md)") [d2](<README.md> (a [y](gone.md)))\n')
+        self.assertEqual(check_links.problems(self.root), [])
+
     def test_thematic_break_after_blank_line_is_not_a_heading(self):
         self.assertEqual(check_links.anchors("Text\n\n---\n"), set())
 
