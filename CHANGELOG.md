@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/MarcelRoozekrans/ci-baseline/compare/v1.1.0...v1.2.0) (2026-11-21)
+
+
+### Features
+
+* add an opt-in Semgrep job to baseline.yml ([#11](https://github.com/MarcelRoozekrans/ci-baseline/issues/11)) ([b42c3b2](https://github.com/MarcelRoozekrans/ci-baseline/commit/b42c3b2740959b6f644ee0f91a87a19165fb28a3))
+
 ## [1.1.0](https://github.com/MarcelRoozekrans/ci-baseline/compare/v1.0.0...v1.1.0) (2026-11-21)
 
 
