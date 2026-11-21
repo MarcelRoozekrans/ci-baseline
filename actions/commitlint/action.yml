@@ -1,0 +1,72 @@
+name: commitlint
+description: Lint a range of commit messages as Conventional Commits with a pinned commitlint. Uses the repo's own commitlint config when it has one, otherwise the ci-baseline house config.
+inputs:
+  from:
+    description: Commit after which the range starts, for example the pull request base.
+    required: true
+  to:
+    description: Last commit of the range, for example the pull request head.
+    required: true
+  config:
+    description: Path of a commitlint config in the repo. Empty means the repo's own config if it has one, otherwise the house config.
+    default: ""
+outputs:
+  config:
+    description: "Which config was used: the path, or house."
+    value: ${{ steps.lint.outputs.config }}
+runs:
+  using: composite
+  steps:
+    - name: Install commitlint from the lockfile
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: npm ci --prefix "$ACTION_PATH/../../lib/commitlint" --ignore-scripts --no-audit --no-fund --loglevel=error
+    - name: Lint the commits
+      id: lint
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        FROM: ${{ inputs.from }}
+        TO: ${{ inputs.to }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -uo pipefail
+        lib="$ACTION_PATH/../../lib/commitlint"
+        if [ -z "$CONFIG" ]; then
+          for candidate in .commitlintrc .commitlintrc.json .commitlintrc.yaml .commitlintrc.yml .commitlintrc.js .commitlintrc.cjs .commitlintrc.mjs \
+            commitlint.config.js commitlint.config.cjs commitlint.config.mjs; do
+            if [ -f "$candidate" ]; then CONFIG=$candidate; break; fi
+          done
+        fi
+        if [ -n "$CONFIG" ]; then
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::commitlint config $CONFIG does not exist"
+            exit 1
+          fi
+          # The repo's config extends shared configs by package name; Node resolves those from the
+          # repo's directory, so the pinned packages are linked in when the repo has none of its own.
+          [ -e node_modules ] || ln -s "$lib/node_modules" node_modules
+          used=$CONFIG
+          args=(--config "$CONFIG")
+        else
+          used=house
+          args=(--config "$lib/commitlintrc.yml")
+        fi
+        echo "config=$used" >> "$GITHUB_OUTPUT"
+        log="$RUNNER_TEMP/commitlint.log"
+        "$lib/node_modules/.bin/commitlint" "${args[@]}" --from "$FROM" --to "$TO" --verbose 2>&1 | tee "$log"
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -eq 0 ]; then
+          echo "commitlint ($used config): every commit in the range passed" >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "commitlint ($used config): failed"
+            echo
+            echo '```'
+            cat "$log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::commitlint found commit messages that are not Conventional Commits; see the job summary"
+        fi
+        exit "$rc"

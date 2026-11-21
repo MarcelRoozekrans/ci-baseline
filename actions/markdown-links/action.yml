@@ -1,0 +1,40 @@
+name: markdown-links
+description: Check that every relative link and heading anchor in the repo's Markdown files resolves. Absolute URLs are not checked.
+inputs:
+  path:
+    description: Directory whose Markdown files are checked, relative to the workspace.
+    default: "."
+  exclude:
+    description: "Space separated directories, relative to path, whose Markdown files are not checked. Empty means none."
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Check the relative links
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        EXCLUDE: ${{ inputs.exclude }}
+        CHECK_PATH: ${{ inputs.path }}
+      run: |
+        set -uo pipefail
+        args=()
+        # Split on spaces only; no glob expansion of the directory names.
+        set -f
+        for dir in $EXCLUDE; do args+=(--exclude "$dir"); done
+        set +f
+        log="$RUNNER_TEMP/markdown-links.log"
+        python3 "$ACTION_PATH/../../lib/check_links.py" "$CHECK_PATH" "${args[@]}" 2>&1 | tee "$log"
+        rc=${PIPESTATUS[0]}
+        if [ "$rc" -eq 0 ]; then
+          echo "markdown-links: every relative link resolves" >> "$GITHUB_STEP_SUMMARY"
+        else
+          {
+            echo "markdown-links: broken relative links"
+            echo
+            echo '```'
+            sed 's/^::error:://' "$log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        exit "$rc"

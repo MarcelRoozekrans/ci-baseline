@@ -19,6 +19,7 @@ import yaml
 # README heading -> file whose inputs the table under that heading documents.
 TABLES = {
     "baseline.yml inputs": ".github/workflows/baseline.yml",
+    "conventions.yml inputs": ".github/workflows/conventions.yml",
     "coverage-gate inputs": "actions/coverage-gate/action.yml",
     "sbom inputs": "actions/sbom/action.yml",
 }

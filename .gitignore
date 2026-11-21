@@ -4,3 +4,4 @@ TestResults/
 *.cdx.json
 .ci-baseline/
 __pycache__/
+node_modules/

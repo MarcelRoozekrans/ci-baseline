@@ -10,3 +10,6 @@ paths:
   .github/workflows/history-scan.yml:
     ignore:
       - '^property "workflow_(sha|repository)" is not defined in object type \{'
+  .github/workflows/conventions.yml:
+    ignore:
+      - '^property "workflow_(sha|repository)" is not defined in object type \{'
