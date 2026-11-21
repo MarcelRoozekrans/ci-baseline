@@ -24,8 +24,10 @@ runs:
         for dir in $EXCLUDE; do args+=(--exclude "$dir"); done
         set +f
         log="$RUNNER_TEMP/markdown-links.log"
+        set +e
         python3 "$ACTION_PATH/../../lib/check_links.py" "$CHECK_PATH" "${args[@]}" 2>&1 | tee "$log"
         rc=${PIPESTATUS[0]}
+        set -e
         if [ "$rc" -eq 0 ]; then
           echo "markdown-links: every relative link resolves" >> "$GITHUB_STEP_SUMMARY"
         else

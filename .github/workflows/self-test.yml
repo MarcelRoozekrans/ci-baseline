@@ -187,6 +187,9 @@ jobs:
           echo "good=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           g commit -q --allow-empty -m "Not a conventional commit"
           echo "bad=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # An existing node_modules with only an unrelated package: the preset must still resolve.
+          mkdir -p node_modules/unrelated
+          echo '{"name":"unrelated","version":"1.0.0"}' > node_modules/unrelated/package.json
       - name: house-config-good
         id: good
         uses: ./actions/commitlint
@@ -211,6 +214,18 @@ jobs:
         with:
           from: ${{ steps.commits.outputs.base }}
           to: ${{ steps.commits.outputs.good }}
+      # A config in package.json, which commitlint finds itself.
+      - name: Move the repo config into package.json
+        run: |
+          rm .commitlintrc.yml
+          echo '{"name":"x","private":true,"commitlint":{"extends":["@commitlint/config-conventional"],"rules":{"type-enum":[2,"always",["feat"]]}}}' > package.json
+      - name: package-json-config
+        id: pkg
+        continue-on-error: true
+        uses: ./actions/commitlint
+        with:
+          from: ${{ steps.commits.outputs.base }}
+          to: ${{ steps.commits.outputs.good }}
       - name: missing-config
         id: missing
         continue-on-error: true
@@ -228,6 +243,8 @@ jobs:
           BAD: ${{ steps.bad.outcome }}
           REPO: ${{ steps.repo.outcome }}
           REPO_CONFIG: ${{ steps.repo.outputs.config }}
+          PKG: ${{ steps.pkg.outcome }}
+          PKG_CONFIG: ${{ steps.pkg.outputs.config }}
           MISSING: ${{ steps.missing.outcome }}
         run: |
           fail=0
@@ -238,7 +255,9 @@ jobs:
           expect "house-config-good config" "$GOOD_CONFIG" house
           expect "house-config-bad outcome" "$BAD" failure
           expect "repo-config outcome" "$REPO" failure
-          expect "repo-config config" "$REPO_CONFIG" .commitlintrc.yml
+          expect "repo-config config" "$REPO_CONFIG" repo
+          expect "package-json-config outcome" "$PKG" failure
+          expect "package-json-config config" "$PKG_CONFIG" repo
           expect "missing-config outcome" "$MISSING" failure
           exit "$fail"
 

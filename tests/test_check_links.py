@@ -96,6 +96,31 @@ class ProblemsTest(unittest.TestCase):
         write(self.root, "README.md", "[x](a.yml#L1)\n")
         self.assertEqual(check_links.problems(self.root), [])
 
+    def test_balanced_and_escaped_parentheses(self):
+        write(self.root, "docs/a(b).md", "# T\n")
+        write(self.root, "README.md", "[x](docs/a(b).md) [y](docs/a\\(b\\).md#t)\n")
+        self.assertEqual(check_links.problems(self.root), [])
+
+    def test_image_inside_a_link_is_checked(self):
+        write(self.root, "README.md", "[![badge](missing.png)](README.md)\n")
+        self.assertEqual(check_links.problems(self.root), ["README.md:1: missing.png does not exist"])
+
+    def test_code_span_text_counts_in_heading_anchors(self):
+        write(self.root, "README.md", "# Using `foo`\n\n[x](#using-foo)\n")
+        self.assertEqual(check_links.problems(self.root), [])
+
+    def test_setext_headings(self):
+        write(self.root, "README.md", "Usage\n=====\n\nMore\n---\n\n[a](#usage) [b](#more)\n")
+        self.assertEqual(check_links.problems(self.root), [])
+
+    def test_thematic_break_after_blank_line_is_not_a_heading(self):
+        self.assertEqual(check_links.anchors("Text\n\n---\n"), set())
+
+    def test_root_must_be_a_directory(self):
+        with self.assertRaises(NotADirectoryError):
+            check_links.problems(os.path.join(self.root, "missing"))
+        self.assertEqual(check_links.problems(self.root), [])
+
 
 class MainTest(unittest.TestCase):
     def run_main(self, argv):
@@ -112,6 +137,11 @@ class MainTest(unittest.TestCase):
             self.assertIn("::error::docs/README.md:1: gone.md does not exist", out)
             code, out = self.run_main([root, "--exclude", "docs"])
             self.assertEqual(code, 0)
+
+    def test_missing_root_fails(self):
+        code, out = self.run_main([os.path.join(tempfile.gettempdir(), "no-such-dir-for-check-links")])
+        self.assertEqual(code, 1)
+        self.assertIn("is not a directory", out)
 
     def test_exclude_needs_a_value(self):
         code, out = self.run_main(["--exclude"])

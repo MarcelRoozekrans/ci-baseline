@@ -224,7 +224,7 @@ jobs:
     uses: MarcelRoozekrans/ci-baseline/.github/workflows/conventions.yml@v1
 ```
 
-commitlint checks the commits a pull request adds, with the repo's own commitlint config when it has one (`.commitlintrc.yml` and the other names commitlint looks for), and otherwise with the house config in `lib/commitlint/commitlintrc.yml`: `@commitlint/config-conventional` with the changelog types release-please reads, plus `bench`. commitlint and its shared configs are installed from a lockfile, so their versions only change with a ci-baseline release. A repo config that extends other shared configs than `@commitlint/config-conventional` needs those installed itself.
+commitlint checks the commits a pull request adds, with the repo's own commitlint config when commitlint finds one (any location commitlint supports, `package.json` included), and otherwise with the house config in `lib/commitlint/commitlintrc.yml`: `@commitlint/config-conventional` with the changelog types release-please reads, plus `bench`. commitlint and its shared configs are installed from a lockfile, so their versions only change with a ci-baseline release. The pinned `@commitlint/config-conventional` is linked into the repo's `node_modules` when the repo does not have it. A repo config that extends other shared configs needs those installed itself.
 
 The link check reads every `*.md` file outside `.git` and `node_modules`. It checks relative links, images and reference definitions, and `#anchors` against the headings of the target file. Absolute URLs are not checked: they need the network and would make the check flaky.
 

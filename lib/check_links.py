@@ -18,13 +18,12 @@ import sys
 from urllib.parse import unquote
 
 ALWAYS_SKIPPED = {".git", "node_modules", ".ci-baseline"}
-# [text](target "title") and ![alt](target); the target may be wrapped in <>.
-INLINE = re.compile(r"!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+[\"'(][^)]*)?\)")
 # [label]: target
 REFERENCE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)")
 SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+SETEXT_UNDERLINE = re.compile(r"^\s{0,3}(=+|-+)\s*$")
 INLINE_CODE = re.compile(r"(`+)(?:(?!\1).)+?\1")
 HTML_ANCHOR = re.compile(r"<a\s+[^>]*(?:name|id)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
@@ -37,8 +36,9 @@ def slug(heading):
     return text.replace(" ", "-")
 
 
-def text_lines(content):
-    """The lines outside fenced code blocks, with inline code removed, as (number, line) pairs."""
+def text_lines(content, keep_code_spans=False):
+    """The lines outside fenced code blocks as (number, line) pairs, with inline code removed
+    unless keep_code_spans is set."""
     fence = None
     for number, line in enumerate(content.splitlines(), start=1):
         match = FENCE.match(line)
@@ -49,39 +49,97 @@ def text_lines(content):
             if line.strip().startswith(fence):
                 fence = None
             continue
-        yield number, INLINE_CODE.sub("", line)
+        yield number, line if keep_code_spans else INLINE_CODE.sub("", line)
 
 
 def anchors(content):
     """Every heading anchor in a Markdown file, with GitHub's -1, -2 suffixes for repeats."""
     found = set()
     seen = {}
-    for _, line in text_lines(content):
+    previous = None  # (line number, text) of the previous line, for Setext headings
+    for number, line in text_lines(content, keep_code_spans=True):
         for name in HTML_ANCHOR.findall(line):
             found.add(name.lower())
+        heading = None
         match = HEADING.match(line)
-        if not match:
+        if match:
+            heading = match.group(1)
+        elif (
+            SETEXT_UNDERLINE.match(line)
+            and previous is not None
+            and previous[0] == number - 1
+            and previous[1].strip()
+            and not HEADING.match(previous[1])
+            and not SETEXT_UNDERLINE.match(previous[1])
+        ):
+            heading = previous[1].strip()
+        previous = (number, line)
+        if heading is None:
             continue
-        base = slug(match.group(1))
+        base = slug(heading)
         count = seen.get(base, 0)
         seen[base] = count + 1
         found.add(base if count == 0 else "%s-%d" % (base, count))
     return found
 
 
+def destination(line, start):
+    """The link destination that starts at line[start], just after "](", or None.
+
+    Handles <...> destinations, balanced parentheses such as docs/a(b).md, and an optional title.
+    """
+    i = start
+    while i < len(line) and line[i] in " \t":
+        i += 1
+    if i < len(line) and line[i] == "<":
+        end = line.find(">", i + 1)
+        return line[i + 1 : end] if end != -1 else None
+    depth = 0
+    j = i
+    while j < len(line):
+        char = line[j]
+        if char == "\\" and j + 1 < len(line):
+            j += 2
+            continue
+        if char.isspace():
+            break
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        j += 1
+    return line[i:j] if j > i else None
+
+
 def targets(content):
-    """Every link target in a Markdown file, as (line number, target) pairs."""
+    """Every link target in a Markdown file, as (line number, target) pairs.
+
+    Each "](" that follows a "[" starts a destination, so an image inside a link yields both.
+    """
     for number, line in text_lines(content):
-        for match in INLINE.finditer(line):
-            yield number, match.group(1)
+        position = line.find("](")
+        while position != -1:
+            if "[" in line[:position]:
+                target = destination(line, position + 2)
+                if target:
+                    yield number, target
+            position = line.find("](", position + 2)
         match = REFERENCE.match(line)
         if match:
             yield number, match.group(1)
 
 
+def _raise(error):
+    raise error
+
+
 def markdown_files(root, excluded):
+    if not os.path.isdir(root):
+        raise NotADirectoryError("%s is not a directory" % root)
     skipped = {os.path.normpath(os.path.join(root, path)) for path in excluded}
-    for directory, subdirs, files in os.walk(root):
+    for directory, subdirs, files in os.walk(root, onerror=_raise):
         subdirs[:] = sorted(
             name
             for name in subdirs
@@ -110,6 +168,7 @@ def problems(root, excluded=()):
             target = target.strip("<>").strip()
             if not target or SCHEME.match(target) or target.startswith("/"):
                 continue
+            target = re.sub(r"\\([^\w\s])", r"\1", target)  # backslash escapes such as \(
             link, _, fragment = target.partition("#")
             link = unquote(link.split("?", 1)[0])
             fragment = unquote(fragment).lower()
